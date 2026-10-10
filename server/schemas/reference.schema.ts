@@ -16,6 +16,18 @@ export const AnalyzeReferenceRequestSchema = z.object({
 });
 export type AnalyzeReferenceRequest = z.infer<typeof AnalyzeReferenceRequestSchema>;
 
+/**
+ * Phase 6.2: Multi-frame analysis — bounded to 5 frames to limit API cost.
+ */
+export const AnalyzeMultipleFramesRequestSchema = z.object({
+  frameBase64s: z
+    .array(z.string().min(10))
+    .min(2, 'At least 2 frames are required for multi-frame analysis')
+    .max(5, 'Maximum 5 frames per analysis request'),
+  userPrompt: z.string().max(500).optional(),
+});
+export type AnalyzeMultipleFramesRequest = z.infer<typeof AnalyzeMultipleFramesRequestSchema>;
+
 export const GeneratePlanRequestSchema = z.object({
   referenceId: z.string().min(1),
   userPrompt: z.string().min(1).max(500),

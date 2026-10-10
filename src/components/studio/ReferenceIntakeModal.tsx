@@ -16,17 +16,23 @@ import {
   Eye,
   Sliders,
   FileCode,
+  Layers,
+  Film,
+  Info,
+  TrendingUp,
 } from 'lucide-react';
 import type {
   ReferenceAnalysis,
   GameGenerationPlan,
   GameCategory,
   TargetEngine,
+  AnalysisConfidenceTier,
 } from '../../types/reference.js';
 import type { PlayableGameScene } from '../../types/scene.js';
 import {
   uploadReferenceMedia,
   analyzeReferenceVision,
+  analyzeMultipleFrames,
   requestGamePlan,
 } from '../../services/api.js';
 import { loadImageFile, extractVideoFrame } from '../../utils/mediaExtractor.js';
@@ -43,6 +49,19 @@ interface ReferenceIntakeModalProps {
 }
 
 type TabMode = 'upload-image' | 'video-frame' | 'canvas-sketch';
+
+/** Phase 6.2: Maximum frames to collect for multi-frame analysis */
+const MAX_CAPTURE_FRAMES = 5;
+
+/** Confidence tier display config */
+const CONFIDENCE_TIER_CONFIG: Record<
+  AnalysisConfidenceTier,
+  { label: string; color: string; bg: string; border: string }
+> = {
+  high: { label: 'High Confidence', color: 'text-emerald-300', bg: 'bg-emerald-500/15', border: 'border-emerald-500/30' },
+  medium: { label: 'Medium Confidence', color: 'text-amber-300', bg: 'bg-amber-500/15', border: 'border-amber-500/30' },
+  low: { label: 'Low Confidence', color: 'text-rose-300', bg: 'bg-rose-500/15', border: 'border-rose-500/30' },
+};
 
 export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
   isOpen,
@@ -68,6 +87,11 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
   const [videoDuration, setVideoDuration] = useState<number>(5);
   const [seekTime, setSeekTime] = useState<number>(0.5);
   const [isExtractingFrame, setIsExtractingFrame] = useState<boolean>(false);
+
+  // Phase 6.2: Multi-frame state
+  const [capturedFrames, setCapturedFrames] = useState<{ dataUrl: string; timestampS: number }[]>([]);
+  const [useMultiFrame, setUseMultiFrame] = useState<boolean>(false);
+  const [isAnalyzingMultiFrame, setIsAnalyzingMultiFrame] = useState<boolean>(false);
 
   // User Prompt
   const [userPrompt, setUserPrompt] = useState<string>(
@@ -107,7 +131,6 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
         height: loaded.height,
         sizeBytes: loaded.fileSizeBytes,
       });
-      // Clear previous analysis
       setAnalysis(null);
       setGeneratedPlan(null);
     } catch (err: unknown) {
@@ -124,6 +147,7 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
       setErrorMessage(null);
       setVideoFile(file);
       setIsExtractingFrame(true);
+      setCapturedFrames([]);
 
       const frame = await extractVideoFrame(file, seekTime);
       setPreviewImage(frame.dataUrl);
@@ -166,6 +190,16 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
     }
   };
 
+  // Phase 6.2: Capture current frame for multi-frame batch
+  const handleCaptureFrame = async () => {
+    if (!previewImage || capturedFrames.length >= MAX_CAPTURE_FRAMES) return;
+    setCapturedFrames((prev) => [...prev, { dataUrl: previewImage, timestampS: seekTime }]);
+  };
+
+  const handleRemoveCapturedFrame = (idx: number) => {
+    setCapturedFrames((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   // Load Current Sketch from Studio
   const handleUseCurrentSketch = () => {
     if (!getCurrentCanvasPng || !hasCanvasStrokes) return;
@@ -186,7 +220,37 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
     }
   };
 
-  // Run AI Reference Analysis
+  // Phase 6.2: Run multi-frame analysis
+  const handleAnalyzeMultiFrame = async () => {
+    if (capturedFrames.length < 2) {
+      setErrorMessage('Capture at least 2 frames to use multi-frame analysis.');
+      return;
+    }
+
+    setIsAnalyzingMultiFrame(true);
+    setErrorMessage(null);
+    setNoticeMessage(null);
+    audioService.playClick();
+
+    try {
+      const res = await analyzeMultipleFrames(
+        capturedFrames.map((f) => f.dataUrl),
+        userPrompt
+      );
+      setAnalysis(res.analysis);
+      setEditedCategory(res.analysis.category);
+      setEditedPipeline(res.analysis.recommendedPipeline);
+      setNoticeMessage(
+        `Multi-frame analysis complete: ${res.frameCount} frames processed by Gemini Vision.`
+      );
+    } catch (err: unknown) {
+      setErrorMessage((err as Error).message || 'Multi-frame analysis failed');
+    } finally {
+      setIsAnalyzingMultiFrame(false);
+    }
+  };
+
+  // Run AI Reference Analysis (single image)
   const handleAnalyze = async () => {
     if (!previewImage) {
       setErrorMessage('Please provide a reference image, video frame, or sketch first.');
@@ -290,6 +354,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const confidenceCfg = analysis?.analysisConfidenceTier
+    ? CONFIDENCE_TIER_CONFIG[analysis.analysisConfidenceTier]
+    : null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
@@ -310,8 +378,8 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <h2 className="text-base font-bold text-white tracking-tight">
                   Multimodal Reference Intake & Game-Type Detection
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-                  Phase 6.1
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/25">
+                  Phase 6.2
                 </span>
               </div>
               <p className="text-xs text-slate-400">
@@ -433,9 +501,83 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                         onChange={(e) => handleSeekFrame(parseFloat(e.target.value))}
                         className="w-full accent-cyan-400 cursor-pointer"
                       />
-                      <p className="text-[11px] text-slate-400">
-                        Scrub the timeline to extract a crisp reference frame showing gameplay or terrain.
-                      </p>
+
+                      {/* Phase 6.2: Multi-frame capture controls */}
+                      <div className="pt-2 border-t border-slate-700 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Film className="w-3.5 h-3.5 text-purple-400" />
+                            <span className="text-xs font-semibold text-slate-300">Multi-Frame Analysis</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Phase 6.2</span>
+                          </div>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={useMultiFrame}
+                              onChange={(e) => setUseMultiFrame(e.target.checked)}
+                              className="accent-purple-400"
+                            />
+                            <span className="text-xs text-slate-400">Enable</span>
+                          </label>
+                        </div>
+
+                        {useMultiFrame && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[11px] text-slate-400">
+                                Capture frames from different timestamps to improve mechanic detection.
+                                Min 2, max {MAX_CAPTURE_FRAMES}.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={handleCaptureFrame}
+                                disabled={!previewImage || capturedFrames.length >= MAX_CAPTURE_FRAMES || isExtractingFrame}
+                                className="ml-2 shrink-0 px-2 py-1 rounded bg-purple-600/80 hover:bg-purple-600 text-[10px] font-bold text-white disabled:opacity-40 cursor-pointer"
+                              >
+                                + Capture {seekTime.toFixed(1)}s
+                              </button>
+                            </div>
+
+                            {capturedFrames.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {capturedFrames.map((f, idx) => (
+                                  <div key={idx} className="relative group">
+                                    <img
+                                      src={f.dataUrl}
+                                      alt={`Frame ${idx + 1}`}
+                                      className="w-14 h-10 object-cover rounded border border-slate-700 group-hover:border-rose-500 transition-colors"
+                                    />
+                                    <div className="absolute -top-1.5 -left-1 bg-purple-600 text-white text-[9px] font-mono px-1 rounded">
+                                      {f.timestampS.toFixed(1)}s
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveCapturedFrame(idx)}
+                                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {capturedFrames.length >= 2 && (
+                              <button
+                                type="button"
+                                onClick={handleAnalyzeMultiFrame}
+                                disabled={isAnalyzingMultiFrame}
+                                className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white disabled:opacity-40 cursor-pointer"
+                              >
+                                <Layers className="w-3.5 h-3.5" />
+                                {isAnalyzingMultiFrame
+                                  ? `Analyzing ${capturedFrames.length} frames...`
+                                  : `Analyze ${capturedFrames.length} Frames with Gemini Vision`}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -536,11 +678,17 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={handleAnalyze}
-                  disabled={!previewImage || isAnalyzing || isExtractingFrame}
+                  disabled={!previewImage || isAnalyzing || isExtractingFrame || (useMultiFrame && activeTab === 'video-frame')}
                   className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-950/40 transition-all cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
-                  <span>{isAnalyzing ? 'Analyzing Reference Vision...' : 'Analyze Reference & Detect Type'}</span>
+                  <span>
+                    {isAnalyzing
+                      ? 'Analyzing Reference Vision...'
+                      : useMultiFrame && activeTab === 'video-frame'
+                      ? 'Use Multi-Frame Button Above ↑'
+                      : 'Analyze Reference & Detect Type'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -561,12 +709,13 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
             </div>
           )}
 
-          {/* Analysis Results Section */}
+          {/* Phase 6.2: Analysis Results Section */}
           {analysis && (
             <div className="border border-slate-800 rounded-xl bg-slate-900/40 p-5 space-y-5 animate-in fade-in duration-200">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-sm text-white">Visual Reference Analysis</span>
+                  {/* Provenance badge */}
                   <span
                     className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                       analysis.provenance === 'gemini-vision'
@@ -574,8 +723,18 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                         : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                     }`}
                   >
-                    Provenance: {analysis.provenance}
+                    {analysis.provenance}
+                    {analysis.frameCount > 1 ? ` · ${analysis.frameCount} frames` : ''}
                   </span>
+                  {/* Phase 6.2: Confidence tier badge */}
+                  {confidenceCfg && (
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded-full border flex items-center gap-1 ${confidenceCfg.bg} ${confidenceCfg.color} ${confidenceCfg.border}`}
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      {confidenceCfg.label}
+                    </span>
+                  )}
                 </div>
                 <span className="text-[11px] text-slate-400">
                   {new Date(analysis.analyzedAt).toLocaleTimeString()}
@@ -626,12 +785,18 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 </div>
               </div>
 
-              {/* Visible Objects & Terrain */}
+              {/* Phase 6.2: Visible Objects (Direct Observations) & Terrain */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800 space-y-2">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                    Visible Object Observations
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                      Direct Observations
+                    </span>
+                    <span className="text-[9px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-1.5 py-0.5 rounded-full">
+                      Factual
+                    </span>
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {analysis.visibleObjects.map((obj, i) => (
                       <span key={i} className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[11px]">
@@ -649,14 +814,19 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 </div>
               </div>
 
-              {/* Inferred Mechanics with Confidence */}
+              {/* Phase 6.2: Inferred Mechanics with Observation Grounding */}
               <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                  Inferred Mechanics (Hypothesis Grounded in Observations)
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Inferred Mechanics
+                  </span>
+                  <span className="text-[9px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-1.5 py-0.5 rounded-full">
+                    Hypothesis — Not Confirmed Fact
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {analysis.inferredMechanics.map((mech, i) => (
-                    <div key={i} className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/90 space-y-1.5">
+                    <div key={i} className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/90 space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-white">{mech.name}</span>
                         <span className="font-mono text-cyan-400 text-[10px]">
@@ -669,11 +839,60 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                           style={{ width: `${mech.confidence * 100}%` }}
                         />
                       </div>
-                      <p className="text-[11px] text-slate-400">{mech.description}</p>
+                      <p className="text-[11px] text-slate-400 italic">{mech.description}</p>
+                      {/* Phase 6.2: Observation Evidence */}
+                      {mech.observationalEvidence && mech.observationalEvidence.length > 0 && (
+                        <div className="pt-1.5 border-t border-slate-800">
+                          <div className="flex items-center gap-1 mb-1">
+                            <Info className="w-3 h-3 text-cyan-400" />
+                            <span className="text-[9px] uppercase tracking-wider text-cyan-400 font-bold">
+                              Supporting Visual Evidence
+                            </span>
+                          </div>
+                          <ul className="space-y-0.5">
+                            {mech.observationalEvidence.map((ev, ei) => (
+                              <li key={ei} className="text-[10px] text-slate-300 flex items-start gap-1">
+                                <span className="text-cyan-500 mt-0.5">›</span>
+                                <span>{ev}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Phase 6.2: Multi-frame results summary */}
+              {analysis.frameResults && analysis.frameResults.length > 0 && (
+                <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-800/50 space-y-2 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <Film className="w-3.5 h-3.5 text-purple-400" />
+                    <span className="font-bold text-purple-200 uppercase text-[10px] tracking-wider">
+                      Multi-Frame Analysis Summary ({analysis.frameCount} frames)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {analysis.frameResults.map((fr, i) => (
+                      <div key={i} className="p-2 rounded-lg bg-slate-900/60 border border-purple-800/30 space-y-1">
+                        <span className="text-[10px] font-mono text-purple-300">Frame {fr.frameIndex + 1} — {fr.timestampSeconds.toFixed(1)}s</span>
+                        <p className="text-[10px] text-slate-400">{fr.terrainNotes}</p>
+                        {fr.uniqueObservations.length > 0 && (
+                          <ul className="space-y-0.5">
+                            {fr.uniqueObservations.slice(0, 2).map((obs, oi) => (
+                              <li key={oi} className="text-[9px] text-slate-500 flex items-start gap-1">
+                                <span className="text-purple-500">›</span>
+                                <span>{obs}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Uncertainties & Warnings */}
               {analysis.uncertaintiesAndWarnings.length > 0 && (
@@ -788,7 +1007,7 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                       <h4 className="font-bold text-sm text-amber-200">Dedicated 3D Engine Required (Future Phase)</h4>
                       <p className="text-xs text-slate-300">
                         A single 2D screenshot cannot reconstruct 3D voxel coordinate chunk managers, raymarching
-                        shaders, or depth buffers. Draw2Play AI Phase 6.1 has successfully detected and structured
+                        shaders, or depth buffers. Draw2Play AI Phase 6.2 has successfully detected and structured
                         this voxel generation plan, preserving it for the upcoming 3D Engine release.
                       </p>
                     </div>
@@ -873,7 +1092,7 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
         <div className="px-6 py-3 border-t border-slate-800 bg-[#070a13] flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-2">
             <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Draw2Play AI Multimodal Intake Pipeline</span>
+            <span>Draw2Play AI Multimodal Intake Pipeline — Phase 6.2</span>
           </div>
           <button
             type="button"

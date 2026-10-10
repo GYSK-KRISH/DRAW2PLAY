@@ -219,3 +219,37 @@ export async function requestGamePlan(
   return response.json();
 }
 
+/**
+ * Phase 6.2: Analyze multiple video frames with Gemini Vision.
+ * Requires 2-5 base64 encoded frames. Server merges observations across frames.
+ * Returns 503 with descriptive error if Gemini Vision is not configured.
+ */
+export interface AnalyzeMultipleFramesResponse {
+  success: boolean;
+  source: 'gemini-vision-multiframe';
+  frameCount: number;
+  analysis: import('../types/reference.js').ReferenceAnalysis;
+  notice?: string;
+  error?: string;
+}
+
+export async function analyzeMultipleFrames(
+  frameBase64s: string[],
+  userPrompt?: string
+): Promise<AnalyzeMultipleFramesResponse> {
+  const response = await fetch('/api/reference/analyze-frames', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      frameBase64s,
+      userPrompt,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Multi-frame analysis failed with status ${response.status}`);
+  }
+
+  return response.json();
+}

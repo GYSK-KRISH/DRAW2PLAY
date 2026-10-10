@@ -3,12 +3,14 @@ import { serverConfig } from '../config.js';
 import {
   UploadReferenceRequestSchema,
   AnalyzeReferenceRequestSchema,
+  AnalyzeMultipleFramesRequestSchema,
   GeneratePlanRequestSchema,
   ReferenceAnalysisSchema,
 } from '../schemas/reference.schema.js';
 import { referenceStorageService } from '../services/upload.service.js';
 import {
   analyzeReferenceWithGemini,
+  analyzeMultipleFramesWithGemini,
   generateHeuristicReferenceAnalysis,
   buildGameGenerationPlan,
 } from '../services/referenceAnalysis.service.js';
@@ -58,7 +60,8 @@ referenceRouter.post('/upload', async (req: Request, res: Response): Promise<voi
 });
 
 /**
- * Reference Vision Analysis Endpoint
+ * Reference Vision Analysis Endpoint (single image / frame)
+ * Phase 6.2: Falls back gracefully from Gemini timeout to heuristic.
  */
 referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -84,16 +87,20 @@ referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<vo
         });
         return;
       } catch (geminiError: unknown) {
+        const errMsg = (geminiError as Error).message || 'unknown error';
+        const isTimeout = errMsg.includes('timed out');
         console.warn(
-          'Gemini reference vision analysis failed, falling back to heuristic:',
-          (geminiError as Error).message
+          `Gemini reference vision analysis failed (${isTimeout ? 'TIMEOUT' : 'ERROR'}), falling back to heuristic:`,
+          errMsg
         );
         const fallback = generateHeuristicReferenceAnalysis(userPrompt);
         res.json({
           success: true,
           source: 'mock-heuristic',
           analysis: fallback,
-          notice: `Live Gemini call failed (${(geminiError as Error).message}). Switched to deterministic heuristic analysis.`,
+          notice: isTimeout
+            ? `Gemini Vision timed out after 18s. Switched to deterministic keyword heuristic analysis. Results do not reflect actual image content.`
+            : `Live Gemini call failed (${errMsg}). Switched to deterministic heuristic analysis.`,
         });
         return;
       }
@@ -104,13 +111,68 @@ referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<vo
       success: true,
       source: 'mock-heuristic',
       analysis: heuristic,
-      notice: 'GEMINI_API_KEY is not configured on the server. Used deterministic heuristic analysis.',
+      notice: 'GEMINI_API_KEY is not configured on the server. Used deterministic keyword heuristic analysis. Results do not reflect actual image content.',
     });
   } catch (err: unknown) {
     console.error('Unhandled reference analysis error:', err);
     res.status(500).json({
       success: false,
       error: (err as Error).message || 'Internal server error during reference analysis',
+    });
+  }
+});
+
+/**
+ * Phase 6.2: Multi-Frame Reference Analysis Endpoint
+ * Accepts 2-5 base64 video frames and returns a merged analysis.
+ * Each frame is analysed individually then observations are merged.
+ * Requires Gemini Vision — no heuristic fallback for multi-frame.
+ */
+referenceRouter.post('/analyze-frames', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = AnalyzeMultipleFramesRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Multi-frame analysis request validation failed',
+        details: parseResult.error.flatten(),
+      });
+      return;
+    }
+
+    const { frameBase64s, userPrompt } = parseResult.data;
+
+    if (!serverConfig.geminiApiKey) {
+      res.status(503).json({
+        success: false,
+        error: 'Multi-frame analysis requires Gemini Vision. GEMINI_API_KEY is not configured on the server.',
+        notice: 'Configure GEMINI_API_KEY and retry, or use the single-frame /analyze endpoint with heuristic fallback.',
+      });
+      return;
+    }
+
+    try {
+      const analysis = await analyzeMultipleFramesWithGemini(frameBase64s, userPrompt);
+      res.json({
+        success: true,
+        source: 'gemini-vision-multiframe',
+        frameCount: analysis.frameCount,
+        analysis,
+      });
+    } catch (geminiError: unknown) {
+      const errMsg = (geminiError as Error).message || 'unknown error';
+      console.error('Multi-frame Gemini analysis failed:', errMsg);
+      res.status(502).json({
+        success: false,
+        error: `Multi-frame vision analysis failed: ${errMsg}`,
+        notice: 'Try reducing the number of frames or use single-frame /analyze endpoint.',
+      });
+    }
+  } catch (err: unknown) {
+    console.error('Unhandled multi-frame analysis error:', err);
+    res.status(500).json({
+      success: false,
+      error: (err as Error).message || 'Internal server error during multi-frame analysis',
     });
   }
 });
