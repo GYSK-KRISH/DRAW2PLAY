@@ -7,6 +7,7 @@ import {
   Download,
   HelpCircle,
   Cpu,
+  Gamepad2,
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -18,6 +19,7 @@ interface TopBarProps {
   onClearClick: () => void;
   onExportClick: () => void;
   onAnalyzeClick: () => void;
+  onQuickPlayClick?: () => void;
   onHelpClick: () => void;
 }
 
@@ -30,6 +32,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onClearClick,
   onExportClick,
   onAnalyzeClick,
+  onQuickPlayClick,
   onHelpClick,
 }) => {
   return (
@@ -69,11 +72,11 @@ export const TopBar: React.FC<TopBarProps> = ({
                   Draw2Play <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">AI</span>
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                  Canvas Studio
+                  Playable Studio
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 -mt-0.5 hidden sm:block">
-                Interactive Sketch Engine & Scene Model
+                Sketch-to-Physics Level Engine & Gemini Vision
               </p>
             </div>
           </div>
@@ -81,7 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Engine Status Tag */}
           <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300">
             <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Vector Scene Model: <strong>Active</strong></span>
+            <span>Phaser 4 Engine: <strong>Ready</strong></span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           </div>
         </div>
@@ -150,6 +153,19 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             <HelpCircle className="w-4 h-4" />
           </button>
+
+          {/* Optional Quick Play Button (Instant Local Physics) */}
+          {strokeCount > 0 && onQuickPlayClick && (
+            <button
+              type="button"
+              onClick={onQuickPlayClick}
+              title="Launch level immediately with local vector physics"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-500/40 shadow-lg shadow-emerald-950/40 transition-all cursor-pointer active:scale-95"
+            >
+              <Gamepad2 className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Quick Play</span>
+            </button>
+          )}
 
           {/* Primary Analyze Sketch Button */}
           <button

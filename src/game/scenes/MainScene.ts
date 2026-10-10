@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import type { CharacterConfig } from '../../types/game.js';
+import type { PlayableGameScene, GamePlayState } from '../../types/scene.js';
+
+export interface MainSceneInitData {
+  sceneData?: PlayableGameScene;
+  onGameStateChange?: (state: GamePlayState, score: number, coinsCollected: number) => void;
+}
 
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
@@ -10,166 +15,341 @@ export class MainScene extends Phaser.Scene {
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
   };
+
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
-  private coins!: Phaser.Physics.Arcade.Group;
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
-  private scoreText!: Phaser.GameObjects.Text;
+  private trampolines!: Phaser.Physics.Arcade.StaticGroup;
+  private coins!: Phaser.Physics.Arcade.Group;
+  private goalObject!: Phaser.Types.Physics.Arcade.ImageWithStaticBody;
+
+  private sceneData?: PlayableGameScene;
+  private onGameStateChange?: (state: GamePlayState, score: number, coinsCollected: number) => void;
+
   private score = 0;
-  private characterConfig?: CharacterConfig;
+  private coinsCollected = 0;
+  private totalCoins = 0;
+  private gameState: GamePlayState = 'ready';
 
   constructor() {
     super({ key: 'MainScene' });
   }
 
-  init(data: { characterConfig?: CharacterConfig }) {
-    if (data.characterConfig) {
-      this.characterConfig = data.characterConfig;
-    }
+  init(data: MainSceneInitData) {
+    this.sceneData = data.sceneData;
+    this.onGameStateChange = data.onGameStateChange;
     this.score = 0;
+    this.coinsCollected = 0;
+    this.totalCoins = this.sceneData?.coins.length ?? 0;
+    this.gameState = 'ready';
+  }
+
+  getTotalCoins(): number {
+    return this.totalCoins;
   }
 
   preload() {
-    // Generate default procedural player texture if no custom sketch is loaded
-    const defaultGraphics = this.make.graphics({ x: 0, y: 0 });
-    defaultGraphics.fillStyle(0x38bdf8, 1);
-    defaultGraphics.fillCircle(24, 24, 20);
-    defaultGraphics.fillStyle(0xffffff, 1);
-    defaultGraphics.fillCircle(18, 18, 6);
-    defaultGraphics.fillCircle(30, 18, 6);
-    defaultGraphics.fillStyle(0x0f172a, 1);
-    defaultGraphics.fillCircle(20, 18, 3);
-    defaultGraphics.fillCircle(32, 18, 3);
-    defaultGraphics.lineStyle(2, 0x0284c7, 1);
-    defaultGraphics.strokeCircle(24, 24, 20);
-    defaultGraphics.generateTexture('default-hero', 48, 48);
+    // 1. Procedural Player Hero Texture
+    if (!this.textures.exists('hero-sprite')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      // Body
+      g.fillStyle(0x38bdf8, 1);
+      g.fillCircle(18, 18, 16);
+      // Highlights & Visor
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(14, 14, 4);
+      g.fillCircle(22, 14, 4);
+      g.fillStyle(0x0f172a, 1);
+      g.fillCircle(15, 14, 2);
+      g.fillCircle(23, 14, 2);
+      // Outer Stroke
+      g.lineStyle(2, 0x0284c7, 1);
+      g.strokeCircle(18, 18, 16);
+      g.generateTexture('hero-sprite', 36, 36);
+      g.destroy();
+    }
 
-    // Coin texture
-    const coinGraphics = this.make.graphics({ x: 0, y: 0 });
-    coinGraphics.fillStyle(0xfacc15, 1);
-    coinGraphics.fillCircle(12, 12, 10);
-    coinGraphics.lineStyle(2, 0xeab308, 1);
-    coinGraphics.strokeCircle(12, 12, 10);
-    coinGraphics.generateTexture('coin-texture', 24, 24);
+    // 2. Procedural Coin Texture
+    if (!this.textures.exists('coin-sprite')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xfacc15, 1);
+      g.fillCircle(12, 12, 10);
+      g.lineStyle(2, 0xeab308, 1);
+      g.strokeCircle(12, 12, 10);
+      g.fillStyle(0xfffbeb, 1);
+      g.fillCircle(10, 9, 3);
+      g.generateTexture('coin-sprite', 24, 24);
+      g.destroy();
+    }
 
-    // Hazard spike texture
-    const spikeGraphics = this.make.graphics({ x: 0, y: 0 });
-    spikeGraphics.fillStyle(0xef4444, 1);
-    spikeGraphics.fillTriangle(0, 24, 12, 0, 24, 24);
-    spikeGraphics.generateTexture('hazard-spike', 24, 24);
+    // 3. Procedural Hazard Spike Texture
+    if (!this.textures.exists('hazard-spike-texture')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xef4444, 1);
+      g.fillTriangle(0, 24, 12, 0, 24, 24);
+      g.lineStyle(2, 0xb91c1c, 1);
+      g.strokeTriangle(0, 24, 12, 0, 24, 24);
+      g.generateTexture('hazard-spike-texture', 24, 24);
+      g.destroy();
+    }
 
-    // Platform texture
-    const platGraphics = this.make.graphics({ x: 0, y: 0 });
-    platGraphics.fillStyle(0x334155, 1);
-    platGraphics.fillRoundedRect(0, 0, 160, 24, 6);
-    platGraphics.lineStyle(2, 0x64748b, 1);
-    platGraphics.strokeRoundedRect(0, 0, 160, 24, 6);
-    platGraphics.generateTexture('platform-texture', 160, 24);
+    // 4. Procedural Trampoline Pad Texture
+    if (!this.textures.exists('trampoline-texture')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x06b6d4, 1);
+      g.fillRoundedRect(0, 4, 48, 12, 4);
+      g.lineStyle(2, 0x0891b2, 1);
+      g.strokeRoundedRect(0, 4, 48, 12, 4);
+      // Spring indicator
+      g.fillStyle(0xa5f3fc, 1);
+      g.fillRect(8, 2, 32, 3);
+      g.generateTexture('trampoline-texture', 48, 16);
+      g.destroy();
+    }
 
-    // Ground texture
-    const groundGraphics = this.make.graphics({ x: 0, y: 0 });
-    groundGraphics.fillStyle(0x1e293b, 1);
-    groundGraphics.fillRect(0, 0, 800, 40);
-    groundGraphics.lineStyle(2, 0x0ea5e9, 0.8);
-    groundGraphics.lineBetween(0, 0, 800, 0);
-    groundGraphics.generateTexture('ground-texture', 800, 40);
-
-    // Load custom character texture from drawn data URL if available
-    if (this.characterConfig?.drawingDataUrl) {
-      if (this.textures.exists('drawn-character')) {
-        this.textures.remove('drawn-character');
-      }
-      this.textures.addBase64('drawn-character', this.characterConfig.drawingDataUrl);
+    // 5. Procedural Goal Flag Texture
+    if (!this.textures.exists('goal-flag-texture')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      // Flag pole
+      g.fillStyle(0x94a3b8, 1);
+      g.fillRect(4, 0, 4, 48);
+      // Portal Banner
+      g.fillStyle(0xa855f7, 1);
+      g.fillTriangle(8, 4, 32, 16, 8, 28);
+      g.lineStyle(2, 0xd8b4fe, 1);
+      g.strokeTriangle(8, 4, 32, 16, 8, 28);
+      g.generateTexture('goal-flag-texture', 36, 48);
+      g.destroy();
     }
   }
 
   create() {
-    const width = this.scale.width;
-    const height = this.scale.height;
+    const width = this.sceneData?.world.width ?? 800;
+    const height = this.sceneData?.world.height ?? 480;
 
     // Background aesthetics
     const bgGradient = this.add.graphics();
-    bgGradient.fillGradientStyle(0x0f172a, 0x0f172a, 0x1e1b4b, 0x1e1b4b, 1);
+    bgGradient.fillGradientStyle(0x070a13, 0x070a13, 0x111827, 0x111827, 1);
     bgGradient.fillRect(0, 0, width, height);
 
-    // Static platforms
-    this.platforms = this.physics.add.staticGroup();
-    
-    // Bottom Ground
-    const ground = this.platforms.create(width / 2, height - 20, 'ground-texture') as Phaser.Physics.Arcade.Sprite;
-    ground.refreshBody();
-
-    // Floating ledge platforms
-    const p1 = this.platforms.create(180, height - 130, 'platform-texture') as Phaser.Physics.Arcade.Sprite;
-    p1.refreshBody();
-    const p2 = this.platforms.create(400, height - 230, 'platform-texture') as Phaser.Physics.Arcade.Sprite;
-    p2.refreshBody();
-    const p3 = this.platforms.create(620, height - 150, 'platform-texture') as Phaser.Physics.Arcade.Sprite;
-    p3.refreshBody();
-
-    // Hazardous spikes
-    this.hazards = this.physics.add.staticGroup();
-    this.hazards.create(300, height - 44, 'hazard-spike');
-    this.hazards.create(520, height - 44, 'hazard-spike');
-
-    // Collectible Banana Coins
-    this.coins = this.physics.add.group({
-      key: 'coin-texture',
-      repeat: 5,
-      setXY: { x: 120, y: 100, stepX: 110 },
-    });
-
-    const coinChildren = this.coins.getChildren();
-    for (const c of coinChildren) {
-      const coin = c as Phaser.Physics.Arcade.Sprite;
-      coin.setBounceY(Phaser.Math.FloatBetween(0.3, 0.5));
-      coin.setCollideWorldBounds(true);
+    // Grid lines for game aesthetic
+    const gridGraphics = this.add.graphics();
+    gridGraphics.lineStyle(1, 0x1f2937, 0.4);
+    for (let x = 0; x <= width; x += 40) {
+      gridGraphics.lineBetween(x, 0, x, height);
+    }
+    for (let y = 0; y <= height; y += 40) {
+      gridGraphics.lineBetween(0, y, width, y);
     }
 
-    // Determine player texture
-    const textureKey = (this.characterConfig?.drawingDataUrl && this.textures.exists('drawn-character'))
-      ? 'drawn-character'
-      : 'default-hero';
+    // -----------------------------------------------------------------------
+    // A. SOLID PLATFORMS (From Ground strokes)
+    // -----------------------------------------------------------------------
+    this.platforms = this.physics.add.staticGroup();
 
-    // Player character setup
-    this.player = this.physics.add.sprite(80, height - 100, textureKey);
-    this.player.setDisplaySize(48, 48);
+    const platData = this.sceneData?.platforms ?? [
+      { id: 'floor', x: 0, y: height - 32, width, height: 32 },
+    ];
+
+    for (const p of platData) {
+      // Dynamic texture key per dimension to prevent distortion
+      const texKey = `plat-tex-${p.width}x${p.height}`;
+      if (!this.textures.exists(texKey)) {
+        const pg = this.make.graphics({ x: 0, y: 0 });
+        pg.fillStyle(0x10b981, 1); // Emerald Ground
+        pg.fillRoundedRect(0, 0, p.width, p.height, 4);
+        pg.lineStyle(2, 0x059669, 1);
+        pg.strokeRoundedRect(0, 0, p.width, p.height, 4);
+        pg.generateTexture(texKey, p.width, p.height);
+        pg.destroy();
+      }
+
+      const platSprite = this.platforms.create(
+        p.x + p.width / 2,
+        p.y + p.height / 2,
+        texKey
+      ) as Phaser.Physics.Arcade.Sprite;
+      platSprite.refreshBody();
+    }
+
+    // -----------------------------------------------------------------------
+    // B. LETHAL HAZARDS (From Hazard strokes)
+    // -----------------------------------------------------------------------
+    this.hazards = this.physics.add.staticGroup();
+    const hazardData = this.sceneData?.hazards ?? [];
+
+    for (const h of hazardData) {
+      // Create hazard sprite centered at bounding box
+      const hSprite = this.hazards.create(
+        h.x + h.width / 2,
+        h.y + h.height / 2,
+        'hazard-spike-texture'
+      ) as Phaser.Physics.Arcade.Sprite;
+      hSprite.setDisplaySize(h.width, h.height);
+      hSprite.refreshBody();
+    }
+
+    // -----------------------------------------------------------------------
+    // C. TRAMPOLINES (From Trampoline strokes)
+    // -----------------------------------------------------------------------
+    this.trampolines = this.physics.add.staticGroup();
+    const trampData = this.sceneData?.trampolines ?? [];
+
+    for (const t of trampData) {
+      const tSprite = this.trampolines.create(
+        t.x + t.width / 2,
+        t.y + t.height / 2,
+        'trampoline-texture'
+      ) as Phaser.Physics.Arcade.Sprite;
+      tSprite.setDisplaySize(t.width, t.height);
+      tSprite.setData('bounceStrength', t.bounceStrength || 620);
+      tSprite.refreshBody();
+    }
+
+    // -----------------------------------------------------------------------
+    // D. COLLECTIBLE COINS (From Coin strokes)
+    // -----------------------------------------------------------------------
+    this.coins = this.physics.add.group();
+    const coinData = this.sceneData?.coins ?? [];
+
+    for (const c of coinData) {
+      const coinSprite = this.coins.create(c.x, c.y, 'coin-sprite') as Phaser.Physics.Arcade.Sprite;
+      coinSprite.setBounceY(0.2);
+      coinSprite.setCollideWorldBounds(true);
+      coinSprite.setData('value', c.value || 10);
+
+      // Gentle floating animation
+      this.tweens.add({
+        targets: coinSprite,
+        y: c.y - 6,
+        duration: 800 + Math.random() * 400,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // E. VICTORY GOAL PORTAL / FLAG (From Goal stroke)
+    // -----------------------------------------------------------------------
+    const goalData = this.sceneData?.goal ?? {
+      id: 'default-goal',
+      x: width - 64,
+      y: height - 96,
+      width: 36,
+      height: 48,
+    };
+
+    this.goalObject = this.physics.add.staticImage(
+      goalData.x + goalData.width / 2,
+      goalData.y + goalData.height / 2,
+      'goal-flag-texture'
+    );
+    this.goalObject.setDisplaySize(goalData.width, goalData.height);
+    this.goalObject.refreshBody();
+
+    // Goal visual beacon pulse
+    this.tweens.add({
+      targets: this.goalObject,
+      alpha: 0.8,
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    // -----------------------------------------------------------------------
+    // F. PLAYER SPAWN & HERO CONTROLS
+    // -----------------------------------------------------------------------
+    const spawnX = this.sceneData?.player.spawnX ?? 80;
+    const spawnY = this.sceneData?.player.spawnY ?? height - 100;
+    const playerSize = this.sceneData?.player.size ?? 36;
+
+    this.player = this.physics.add.sprite(spawnX, spawnY, 'hero-sprite');
+    this.player.setDisplaySize(playerSize, playerSize);
     this.player.setCollideWorldBounds(true);
-    this.player.setBounce(0.1);
+    this.player.setBounce(0.05);
 
-    // Apply AI-derived physics properties if configured
-    const speed = this.characterConfig?.attributes.speed ?? 220;
-    const gravity = this.characterConfig?.attributes.gravity ?? 800;
-    this.player.setGravityY(gravity);
+    const grav = this.sceneData?.world.gravity ?? 750;
+    this.player.setGravityY(grav);
 
-    // Collisions
+    // -----------------------------------------------------------------------
+    // G. PHYSICS INTERACTIONS & COLLISIONS
+    // -----------------------------------------------------------------------
+    // 1. Player & Platforms
     this.physics.add.collider(this.player, this.platforms);
+
+    // 2. Coins & Platforms
     this.physics.add.collider(this.coins, this.platforms);
 
-    // Overlap: Collect coin
-    this.physics.add.overlap(this.player, this.coins, (_player, coin) => {
-      (coin as Phaser.Physics.Arcade.Sprite).disableBody(true, true);
-      this.score += 10;
-      this.scoreText.setText(`🍌 Score: ${this.score}`);
+    // 3. Player & Trampolines (Bounce from top)
+    this.physics.add.collider(
+      this.player,
+      this.trampolines,
+      (_playerObj, trampObj) => {
+        const tramp = trampObj as Phaser.Physics.Arcade.Sprite;
+        // Bounce only when landing on top
+        if (this.player.body.touching.down && tramp.body && tramp.body.touching.up) {
+          const strength = tramp.getData('bounceStrength') || 620;
+          this.player.setVelocityY(-strength);
 
-      // Visual pulse
+          // Spring squash & stretch effect
+          this.tweens.add({
+            targets: tramp,
+            scaleY: 0.6,
+            duration: 80,
+            yoyo: true,
+          });
+        }
+      }
+    );
+
+    // 4. Player & Coins (Collection Overlap)
+    this.physics.add.overlap(this.player, this.coins, (_playerObj, coinObj) => {
+      const coin = coinObj as Phaser.Physics.Arcade.Sprite;
+      const coinVal = coin.getData('value') || 10;
+      coin.disableBody(true, true);
+
+      this.score += coinVal;
+      this.coinsCollected++;
+
+      this.triggerStateUpdate('playing');
+
+      // Player pulse
       this.tweens.add({
         targets: this.player,
-        scaleX: 1.15,
-        scaleY: 1.15,
-        duration: 80,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        duration: 90,
         yoyo: true,
       });
     });
 
-    // Overlap: Hazard damage
+    // 5. Player & Hazards (Death / Failure Trigger)
     this.physics.add.overlap(this.player, this.hazards, () => {
-      // Bounce player back to spawn on spike hit
-      this.player.setPosition(80, height - 100);
-      this.player.setVelocity(0, 0);
-      this.cameras.main.shake(150, 0.015);
+      if (this.gameState === 'lost') return;
+      this.gameState = 'lost';
+
+      this.player.setTint(0xff0000);
+      this.player.setVelocity(0, -200);
+      this.cameras.main.shake(200, 0.02);
+
+      this.triggerStateUpdate('lost');
     });
 
-    // Controls
+    // 6. Player & Goal (Victory Trigger)
+    this.physics.add.overlap(this.player, this.goalObject, () => {
+      if (this.gameState === 'won' || this.gameState === 'lost') return;
+      this.gameState = 'won';
+
+      this.player.setVelocity(0, 0);
+      this.player.setTint(0xfacc15);
+
+      this.cameras.main.flash(300, 168, 85, 247);
+      this.triggerStateUpdate('won');
+    });
+
+    // -----------------------------------------------------------------------
+    // H. KEYBOARD INPUT CONTROLS
+    // -----------------------------------------------------------------------
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
       this.wasdKeys = {
@@ -180,36 +360,17 @@ export class MainScene extends Phaser.Scene {
       };
     }
 
-    // UI Overlay Text
-    this.scoreText = this.add.text(16, 16, `🍌 Score: ${this.score}`, {
-      fontSize: '18px',
-      color: '#facc15',
-      fontStyle: 'bold',
-      backgroundColor: 'rgba(15, 23, 42, 0.8)',
-      padding: { x: 8, y: 4 },
-    });
-
-    const heroName = this.characterConfig?.attributes.name ?? 'Sketch Hero';
-    const archetype = this.characterConfig?.attributes.archetype ?? 'balanced';
-    this.add.text(16, 48, `Hero: ${heroName} (${archetype.toUpperCase()}) | SPD: ${speed}`, {
-      fontSize: '13px',
-      color: '#94a3b8',
-      backgroundColor: 'rgba(15, 23, 42, 0.8)',
-      padding: { x: 6, y: 3 },
-    });
-
-    // Hint text
-    this.add.text(width - 240, 16, 'Controls: [A/D] Move | [W/Space] Jump', {
-      fontSize: '12px',
-      color: '#64748b',
-    });
+    this.gameState = 'playing';
+    this.triggerStateUpdate('playing');
   }
 
   update() {
-    if (!this.player || !this.cursors) return;
+    if (!this.player || !this.cursors || this.gameState === 'won' || this.gameState === 'lost') {
+      return;
+    }
 
-    const speed = this.characterConfig?.attributes.speed ?? 220;
-    const jumpPower = this.characterConfig?.attributes.jumpPower ?? 380;
+    const speed = this.sceneData?.player.speed ?? 220;
+    const jumpPower = this.sceneData?.player.jumpPower ?? 400;
 
     const left = this.cursors.left.isDown || this.wasdKeys?.A.isDown;
     const right = this.cursors.right.isDown || this.wasdKeys?.D.isDown;
@@ -225,15 +386,24 @@ export class MainScene extends Phaser.Scene {
       this.player.setVelocityX(0);
     }
 
+    // Jump only when on ground (no infinite mid-air jumps)
     if (jump && this.player.body.touching.down) {
       this.player.setVelocityY(-jumpPower);
     }
   }
 
-  public updateCharacter(config: CharacterConfig) {
-    this.characterConfig = config;
-    if (this.scene.isActive()) {
-      this.scene.restart({ characterConfig: config });
+  private triggerStateUpdate(newState: GamePlayState) {
+    this.gameState = newState;
+    if (this.onGameStateChange) {
+      this.onGameStateChange(newState, this.score, this.coinsCollected);
     }
+  }
+
+  public restartGame(newSceneData?: PlayableGameScene) {
+    const nextData = newSceneData ?? this.sceneData;
+    this.scene.restart({
+      sceneData: nextData,
+      onGameStateChange: this.onGameStateChange,
+    });
   }
 }

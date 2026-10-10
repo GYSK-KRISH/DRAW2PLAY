@@ -9,6 +9,7 @@ import { ExportModal } from './components/modals/ExportModal.js';
 import { AnalyzePreparationModal } from './components/modals/AnalyzePreparationModal.js';
 import { EmptyCanvasAlertModal } from './components/modals/EmptyCanvasAlertModal.js';
 import { HelpModal } from './components/studio/HelpModal.js';
+import { PhaserGameView } from './components/game/PhaserGameView.js';
 
 import type {
   CanvasTool,
@@ -16,13 +17,19 @@ import type {
   SketchStroke,
   SketchDocument,
 } from './types/sketch.js';
+import type { PlayableGameScene } from './types/scene.js';
 import { calculateSceneSummary } from './utils/sketchSerializer.js';
 import { extractSceneGeometry } from './utils/geometryExtractor.js';
+import { convertSketchToPlayableScene } from './game/sceneConverter.js';
 import { fetchHealth } from './services/api.js';
 
 const SESSION_START_TIME = new Date().toISOString();
 
 export function App() {
+  // Application View Mode: Studio Editor vs. Active Game
+  const [viewMode, setViewMode] = useState<'studio' | 'playing'>('studio');
+  const [activePlayableScene, setActivePlayableScene] = useState<PlayableGameScene | null>(null);
+
   // Tool & Palette State
   const [currentTool, setCurrentTool] = useState<CanvasTool>('brush');
   const [selectedElement, setSelectedElement] = useState<SceneElementType>('ground');
@@ -113,8 +120,27 @@ export function App() {
     }
   };
 
-  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y)
+  // Instant Local Vector Quick Play
+  const handleQuickPlay = () => {
+    if (strokes.length === 0) {
+      setIsEmptyAlertOpen(true);
+      return;
+    }
+
+    const scene = convertSketchToPlayableScene(sketchDocument, {
+      source: 'local-vector',
+      levelName: 'Doodle Playground (Instant)',
+      levelDescription: 'Direct local vector physics conversion without AI latency.',
+    });
+
+    setActivePlayableScene(scene);
+    setViewMode('playing');
+  };
+
+  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y) in Editor Mode
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (viewMode !== 'studio') return;
+
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -143,59 +169,71 @@ export function App() {
         onClearClick={() => setIsClearModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
         onAnalyzeClick={handleAnalyzeClick}
+        onQuickPlayClick={handleQuickPlay}
         onHelpClick={() => setIsHelpModalOpen(true)}
       />
 
-      {/* 2. MAIN APPLICATION WORKSPACE */}
-      <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col gap-4">
-        <div className="flex flex-col lg:flex-row gap-4 items-stretch">
-          {/* Left Toolbar: Canvas Tools, Sizes, and Semantic Element Palette */}
-          <SketchToolbar
-            currentTool={currentTool}
-            onSelectTool={setCurrentTool}
-            selectedElement={selectedElement}
-            onSelectElement={setSelectedElement}
-            brushSize={brushSize}
-            onSelectBrushSize={setBrushSize}
+      {/* 2. ACTIVE VIEWPORT: PLAYABLE GAME ENGINE OR STUDIO CANVAS */}
+      {viewMode === 'playing' && activePlayableScene ? (
+        <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col">
+          <PhaserGameView
+            sceneData={activePlayableScene}
+            onBackToEditor={() => setViewMode('studio')}
           />
+        </main>
+      ) : (
+        <>
+          <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col gap-4">
+            <div className="flex flex-col lg:flex-row gap-4 items-stretch">
+              {/* Left Toolbar: Canvas Tools, Sizes, and Semantic Element Palette */}
+              <SketchToolbar
+                currentTool={currentTool}
+                onSelectTool={setCurrentTool}
+                selectedElement={selectedElement}
+                onSelectElement={setSelectedElement}
+                brushSize={brushSize}
+                onSelectBrushSize={setBrushSize}
+              />
 
-          {/* Center Canvas: Responsive HTML5 Canvas with normalized vector strokes */}
-          <InteractiveCanvas
-            ref={canvasRef}
+              {/* Center Canvas: Responsive HTML5 Canvas with normalized vector strokes */}
+              <InteractiveCanvas
+                ref={canvasRef}
+                currentTool={currentTool}
+                selectedElement={selectedElement}
+                brushSize={brushSize}
+                onStrokesChange={(newStrokes) => {
+                  setStrokes(newStrokes);
+                  if (canvasRef.current) {
+                    setCanvasDimensions(canvasRef.current.getDimensions());
+                  }
+                }}
+                onHistoryChange={(undoable, redoable) => {
+                  setCanUndo(undoable);
+                  setCanRedo(redoable);
+                }}
+                onDrawingStatusChange={setDrawingStatus}
+              />
+
+              {/* Right Scene Panel: Element Counts, Extracted Geometry, AI Status */}
+              <ScenePanel
+                summary={sceneSummary}
+                canvasDimensions={canvasDimensions}
+                extractedElements={extractedElements}
+                geminiConfigured={geminiConfigured}
+              />
+            </div>
+          </main>
+
+          {/* 3. BOTTOM STATUS BAR */}
+          <BottomStatusBar
             currentTool={currentTool}
             selectedElement={selectedElement}
-            brushSize={brushSize}
-            onStrokesChange={(newStrokes) => {
-              setStrokes(newStrokes);
-              if (canvasRef.current) {
-                setCanvasDimensions(canvasRef.current.getDimensions());
-              }
-            }}
-            onHistoryChange={(undoable, redoable) => {
-              setCanUndo(undoable);
-              setCanRedo(redoable);
-            }}
-            onDrawingStatusChange={setDrawingStatus}
-          />
-
-          {/* Right Scene Panel: Element Counts, Extracted Geometry, AI Status */}
-          <ScenePanel
-            summary={sceneSummary}
             canvasDimensions={canvasDimensions}
-            extractedElements={extractedElements}
-            geminiConfigured={geminiConfigured}
+            drawingStatus={drawingStatus}
+            summary={sceneSummary}
           />
-        </div>
-      </main>
-
-      {/* 3. BOTTOM STATUS BAR */}
-      <BottomStatusBar
-        currentTool={currentTool}
-        selectedElement={selectedElement}
-        canvasDimensions={canvasDimensions}
-        drawingStatus={drawingStatus}
-        summary={sceneSummary}
-      />
+        </>
+      )}
 
       {/* 4. MODALS & POPUPS */}
       <ClearConfirmModal
@@ -218,6 +256,12 @@ export function App() {
         document={sketchDocument}
         summary={sceneSummary}
         geminiConfigured={geminiConfigured}
+        onGetPngDataUrl={() => canvasRef.current?.exportPng('#ffffff') || ''}
+        onPlayLevel={(scene) => {
+          setActivePlayableScene(scene);
+          setViewMode('playing');
+          setIsAnalyzeModalOpen(false);
+        }}
         onClose={() => setIsAnalyzeModalOpen(false)}
       />
 

@@ -1,15 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Sparkles,
-  CheckCircle2,
-  Image as ImageIcon,
-  Clock,
+  Gamepad2,
   X,
   Info,
-  Box,
   Server,
+  Play,
+  RotateCw,
+  Cpu,
+  ShieldAlert,
+  AlertTriangle,
 } from 'lucide-react';
 import type { SketchDocument, SceneSummary } from '../../types/sketch.js';
+import type { PlayableGameScene } from '../../types/scene.js';
+import { convertSketchToPlayableScene } from '../../game/sceneConverter.js';
+import { analyzeLevelSketch } from '../../services/api.js';
 
 interface AnalyzePreparationModalProps {
   isOpen: boolean;
@@ -17,6 +22,8 @@ interface AnalyzePreparationModalProps {
   document: SketchDocument;
   summary: SceneSummary;
   geminiConfigured?: boolean;
+  onGetPngDataUrl: () => string;
+  onPlayLevel: (scene: PlayableGameScene) => void;
   onClose: () => void;
 }
 
@@ -26,11 +33,78 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
   document,
   summary,
   geminiConfigured = false,
+  onGetPngDataUrl,
+  onPlayLevel,
   onClose,
 }) => {
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzedScene, setAnalyzedScene] = useState<PlayableGameScene | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
   if (!isOpen) return null;
 
-  const extractedCount = document.extractedElements?.length ?? 0;
+  // 1. Instant Local Geometry Conversion (Fallback / Offline fast-path)
+  const handleLocalConvert = () => {
+    setIsAnalyzing(false);
+    setAnalysisError(null);
+    const scene = convertSketchToPlayableScene(document, {
+      source: 'local-vector',
+      levelName: document.name || 'Doodle Physics Playground',
+      levelDescription: 'Deterministic physics level generated locally from vector sketch geometry.',
+    });
+    setAnalyzedScene(scene);
+  };
+
+  // 2. Multimodal AI Analysis (Real Gemini Vision or Server Mock)
+  const handleRemoteAiAnalysis = async () => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+
+    try {
+      const dataUrl = onGetPngDataUrl();
+      const strokeSummaryText = `Strokes: ${document.strokes.length} (Ground: ${summary.elementCounts.ground}, Hazard: ${summary.elementCounts.hazard}, Trampoline: ${summary.elementCounts.trampoline}, Coin: ${summary.elementCounts.coin}, Goal: ${summary.elementCounts.goal})`;
+
+      const res = await analyzeLevelSketch(dataUrl, strokeSummaryText, document.strokes.length);
+
+      if (res.success && res.analysis) {
+        // Merge Gemini's creative thematic naming and tuning with our validated geometry
+        const scene = convertSketchToPlayableScene(document, {
+          source: res.source, // 'gemini-vision' or 'mock-fallback'
+          levelName: res.analysis.levelName,
+          levelDescription: res.analysis.levelDescription,
+        });
+
+        // Apply Gemini's player tuning if present
+        if (res.analysis.playerTuning) {
+          scene.player.speed = res.analysis.playerTuning.speed;
+          scene.player.jumpPower = res.analysis.playerTuning.jumpPower;
+          scene.world.gravity = res.analysis.playerTuning.gravity;
+        }
+
+        setAnalyzedScene(scene);
+      } else {
+        throw new Error(res.error || 'Failed to analyze level with vision pipeline');
+      }
+    } catch (err) {
+      console.warn('AI analysis request failed:', err);
+      setAnalysisError((err as Error).message || 'Remote vision request failed.');
+      // Auto-provide local vector scene so user is never blocked
+      const fallbackScene = convertSketchToPlayableScene(document, {
+        source: 'local-vector',
+        levelName: 'Local Physics Level',
+      });
+      setAnalyzedScene(fallbackScene);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleLaunchGame = () => {
+    if (analyzedScene) {
+      onPlayLevel(analyzedScene);
+      onClose();
+    }
+  };
 
   return (
     <div
@@ -39,13 +113,13 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
       aria-labelledby="prep-dialog-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
     >
-      <div className="bg-[#0a0e1c] border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative flex flex-col gap-5 text-slate-200">
+      <div className="bg-[#0a0e1c] border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative flex flex-col gap-4 text-slate-200">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div className="flex items-center gap-2 text-cyan-400 font-bold text-sm">
             <Sparkles className="w-4 h-4 text-purple-400" />
-            <h2 id="prep-dialog-title" className="text-white">
-              Sketch Prepared for Image-AI Pipeline
+            <h2 id="prep-dialog-title" className="text-white text-base">
+              Level Synthesis & Vision Review
             </h2>
           </div>
           <button
@@ -62,99 +136,196 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
         <div className="p-3 rounded-xl bg-[#060914] border border-slate-800 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 text-slate-300">
             <Server className="w-4 h-4 text-slate-500" />
-            <span>Target AI Service:</span>
+            <span>AI Vision Engine:</span>
           </div>
           <span
             className={`font-mono text-[11px] px-2 py-0.5 rounded border font-semibold ${
               geminiConfigured
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
             }`}
           >
             {geminiConfigured ? 'Gemini 3.8 Flash Online' : 'Offline Fallback (Mock-Heuristic Active)'}
           </span>
         </div>
 
-        {/* Preparation Status Cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center shrink-0">
-              <ImageIcon className="w-5 h-5" />
+        {/* Loading Spinner */}
+        {isAnalyzing && (
+          <div className="py-8 flex flex-col items-center justify-center text-center gap-3">
+            <RotateCw className="w-8 h-8 text-purple-400 animate-spin" />
+            <div className="text-sm font-bold text-white">Analyzing Level with Vision AI...</div>
+            <p className="text-xs text-slate-400 max-w-sm">
+              Interpreting platform geometry, hazard placements, and gameplay rhythm.
+            </p>
+          </div>
+        )}
+
+        {/* REVIEW SCREEN: When a scene is generated */}
+        {!isAnalyzing && analyzedScene && (
+          <div className="flex flex-col gap-3">
+            {/* Title & Provenance */}
+            <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-white">{analyzedScene.levelName}</span>
+                {analyzedScene.source === 'gemini-vision' && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Gemini Vision
+                  </span>
+                )}
+                {analyzedScene.source === 'local-vector' && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+                    <Cpu className="w-3 h-3" /> Local Vector
+                  </span>
+                )}
+                {analyzedScene.source === 'mock-fallback' && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                    <ShieldAlert className="w-3 h-3" /> Mock Fallback
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed italic">
+                "{analyzedScene.levelDescription}"
+              </p>
             </div>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">
-                Image Blob
-              </span>
-              <span className="text-xs font-mono font-bold text-white">
-                {(blobSize / 1024).toFixed(1)} KB (image/png)
-              </span>
+
+            {/* Geometry Elements Breakdown */}
+            <div className="grid grid-cols-5 gap-1.5 text-center text-xs font-mono">
+              <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-800/40">
+                <span className="text-[10px] text-slate-400 block">Ground</span>
+                <span className="font-bold text-emerald-400">{analyzedScene.platforms.length}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-800/40">
+                <span className="text-[10px] text-slate-400 block">Hazards</span>
+                <span className="font-bold text-rose-400">{analyzedScene.hazards.length}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-cyan-950/40 border border-cyan-800/40">
+                <span className="text-[10px] text-slate-400 block">Bounces</span>
+                <span className="font-bold text-cyan-400">{analyzedScene.trampolines.length}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-800/40">
+                <span className="text-[10px] text-slate-400 block">Coins</span>
+                <span className="font-bold text-amber-400">{analyzedScene.coins.length}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-purple-950/40 border border-purple-800/40">
+                <span className="text-[10px] text-slate-400 block">Goal</span>
+                <span className="font-bold text-purple-400">1</span>
+              </div>
             </div>
+
+            {/* Warnings if any */}
+            {analyzedScene.diagnostics.warnings.length > 0 && (
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  {analyzedScene.diagnostics.warnings.map((w, idx) => (
+                    <div key={idx} className="text-[11px] leading-tight">{w}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* DEFAULT PREPARATION VIEW: Options before analysis */}
+        {!isAnalyzing && !analyzedScene && (
+          <div className="flex flex-col gap-3">
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-2.5 rounded-lg bg-[#060914] border border-slate-800">
+                <span className="text-slate-500 text-[10px] block">Image Payload</span>
+                <span className="font-mono font-bold text-white">{(blobSize / 1024).toFixed(1)} KB (PNG)</span>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#060914] border border-slate-800">
+                <span className="text-slate-500 text-[10px] block">Sketch Elements</span>
+                <span className="font-mono font-bold text-white">{document.strokes.length} strokes</span>
+              </div>
+            </div>
+
+            {/* Option Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleRemoteAiAnalysis}
+                className="p-3.5 rounded-xl bg-purple-950/30 hover:bg-purple-950/50 border border-purple-500/40 text-left flex flex-col justify-between gap-2 transition-all cursor-pointer group"
+              >
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-sm text-purple-300 group-hover:text-purple-200">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span>Gemini Vision AI</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Multimodal analysis interprets doodle aesthetics, assigns custom hero tuning, and generates level theme.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-purple-400 flex items-center gap-1">
+                  Run Vision Analysis &rarr;
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLocalConvert}
+                className="p-3.5 rounded-xl bg-cyan-950/30 hover:bg-cyan-950/50 border border-cyan-500/40 text-left flex flex-col justify-between gap-2 transition-all cursor-pointer group"
+              >
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-sm text-cyan-300 group-hover:text-cyan-200">
+                    <Cpu className="w-4 h-4 text-cyan-400" />
+                    <span>Instant Local Vector</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Zero network delay: converts vector strokes directly into solid platforms, spike pits, and bounce pads.
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-cyan-400 flex items-center gap-1">
+                  Convert Locally &rarr;
+                </span>
+              </button>
+            </div>
+
+            {analysisError && (
+              <div className="text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/30 p-2 rounded-lg">
+                {analysisError}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Footer Actions */}
+        <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Info className="w-3.5 h-3.5" />
+            <span>AI provenance is verified and never faked.</span>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
-              <Box className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">
-                Preprocessed Geometry
-              </span>
-              <span className="text-xs font-mono font-bold text-white">
-                {extractedCount} vector elements
-              </span>
-            </div>
-          </div>
-        </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
 
-        {/* Breakdown of Prepared Strokes */}
-        <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 text-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-            Structured Elements In Prepared Payload:
-          </span>
-          <div className="flex flex-wrap gap-2 text-[11px] font-mono">
-            <span className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
-              Ground: {summary.elementCounts.ground}
-            </span>
-            <span className="px-2 py-0.5 rounded bg-rose-950/60 border border-rose-800/60 text-rose-300">
-              Hazard: {summary.elementCounts.hazard}
-            </span>
-            <span className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-300">
-              Trampoline: {summary.elementCounts.trampoline}
-            </span>
-            <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60 text-amber-300">
-              Coin: {summary.elementCounts.coin}
-            </span>
-            <span className="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-800/60 text-purple-300">
-              Goal: {summary.elementCounts.goal}
-            </span>
+            {analyzedScene ? (
+              <button
+                type="button"
+                onClick={handleLaunchGame}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white flex items-center gap-2 shadow-lg shadow-emerald-950/50 transition-all cursor-pointer transform hover:scale-105"
+              >
+                <Gamepad2 className="w-4 h-4" />
+                <span>Play Level Now!</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleLocalConvert}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1.5 shadow-lg shadow-cyan-950/40 transition-colors cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Quick Convert</span>
+              </button>
+            )}
           </div>
-        </div>
-
-        {/* Explicit Boundary Notice */}
-        <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200/90 flex flex-col gap-2">
-          <div className="flex items-center gap-2 font-bold text-purple-300">
-            <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Deterministic Preprocessing Complete</span>
-          </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">
-            The sketch has been preprocessed into a clean PNG binary image and normalized vector geometry. In <strong>Phase 3</strong>, this payload connects to the vision pipeline to synthesize playable physics.
-          </p>
-          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 pt-1 border-t border-purple-500/20">
-            <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span>Local geometric preprocessing is deterministic and distinct from live AI execution.</span>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="pt-3 border-t border-slate-800 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1.5 shadow-lg shadow-cyan-950/40 transition-colors cursor-pointer"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Understood</span>
-          </button>
         </div>
       </div>
     </div>

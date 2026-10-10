@@ -1,18 +1,53 @@
 import React, { useState } from 'react';
-import { Gamepad2, ChevronDown, ChevronUp, RotateCcw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Gamepad2, ChevronDown, ChevronUp, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { PhaserGameView } from '../game/PhaserGameView.js';
 import type { CharacterConfig } from '../../types/game.js';
+import type { PlayableGameScene } from '../../types/scene.js';
 
 interface GamePreviewSectionProps {
-  characterConfig: CharacterConfig | null;
-  onDrawNewClick: () => void;
+  characterConfig?: CharacterConfig | null;
+  sceneData?: PlayableGameScene | null;
+  onDrawNewClick?: () => void;
+  onBackToEditor?: () => void;
 }
 
 export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
   characterConfig,
+  sceneData,
   onDrawNewClick,
+  onBackToEditor,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+
+  const activeScene: PlayableGameScene = sceneData || {
+    schemaVersion: '1.0',
+    source: 'local-vector',
+    levelName: characterConfig?.attributes.name ? `${characterConfig.attributes.name}'s Trial` : 'Default Level',
+    levelDescription: 'Interactive 2D physics stage',
+    world: {
+      width: 800,
+      height: 480,
+      gravity: characterConfig?.attributes.gravity || 750,
+      backgroundColor: '#070a13',
+    },
+    player: {
+      spawnX: 80,
+      spawnY: 360,
+      speed: characterConfig?.attributes.speed || 220,
+      jumpPower: characterConfig?.attributes.jumpPower || 400,
+      size: 36,
+    },
+    platforms: [
+      { id: 'plat-floor', x: 0, y: 440, width: 800, height: 40, strokeColor: '#10b981' },
+    ],
+    hazards: [],
+    trampolines: [],
+    coins: [],
+    goal: { id: 'goal-def', x: 720, y: 370, width: 36, height: 48 },
+    diagnostics: { warnings: [], assumptions: [], strokeCount: 1 },
+  };
+
+  const hasContent = Boolean(sceneData || characterConfig);
 
   return (
     <section
@@ -30,9 +65,9 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
               <h2 className="text-xs font-bold text-white uppercase tracking-wider">
                 2D Arcade Game Preview
               </h2>
-              {characterConfig ? (
+              {hasContent ? (
                 <span className="text-[10px] px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                  Active ({characterConfig.attributes.name})
+                  Active ({activeScene.levelName})
                 </span>
               ) : (
                 <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
@@ -48,7 +83,7 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
 
         {/* Header Controls */}
         <div className="flex items-center gap-2">
-          {characterConfig && (
+          {onDrawNewClick && (
             <button
               type="button"
               onClick={onDrawNewClick}
@@ -74,17 +109,20 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
       {/* Expanded Content Area */}
       {isExpanded && (
         <div className="p-4 flex flex-col items-center">
-          {characterConfig ? (
+          {hasContent ? (
             <div className="w-full flex flex-col items-center gap-3">
               {/* Active Phaser Game Engine Component */}
-              <PhaserGameView characterConfig={characterConfig} />
+              <PhaserGameView
+                sceneData={activeScene}
+                onBackToEditor={onBackToEditor || onDrawNewClick || (() => {})}
+              />
 
               {/* Status and Controls Strip */}
               <div className="w-full flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-[#060914] border border-slate-800/80 text-xs text-slate-400">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>
-                    Player body active: <strong className="text-amber-400">{characterConfig.attributes.name}</strong> ({characterConfig.attributes.archetype.toUpperCase()})
+                    Level active: <strong className="text-amber-400">{activeScene.levelName}</strong> ({activeScene.source})
                   </span>
                 </div>
 
@@ -96,16 +134,12 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
               </div>
             </div>
           ) : (
-            /* Empty State when no character is analyzed */
+            /* Empty State */
             <div className="w-full py-12 flex flex-col items-center justify-center text-center bg-[#060914]/60 rounded-xl border border-slate-800/60 p-6">
-              <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-600 mb-3">
-                <AlertCircle className="w-6 h-6 text-slate-500" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-300">
-                Game Preview Standby
-              </h3>
-              <p className="text-xs text-slate-500 max-w-md mt-1 leading-relaxed">
-                Draw your character on the canvas above and run <strong className="text-purple-400">Analyze Drawing</strong>. The 2D physics engine will automatically spawn your character on the platform!
+              <Gamepad2 className="w-10 h-10 text-slate-600 mb-2" />
+              <p className="text-sm font-semibold text-slate-300">Physics Engine Standing By</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                Analyze a sketch or click Quick Play to test your custom drawn level.
               </p>
             </div>
           )}
@@ -114,3 +148,4 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
     </section>
   );
 };
+export default GamePreviewSection;

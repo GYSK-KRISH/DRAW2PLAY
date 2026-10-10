@@ -1,4 +1,5 @@
 import { CharacterAnalysisOutput } from '../schemas/character.schema.js';
+import { GeminiLevelAnalysisOutput } from '../schemas/level.schema.js';
 
 /**
  * Deterministic fallback service that calculates attributes from image characteristics
@@ -68,4 +69,23 @@ export function generateMockCharacterAttributes(imageBase64: string): CharacterA
   };
 
   return presets[archetype];
+}
+
+/**
+ * Deterministic fallback level analysis when GEMINI_API_KEY is not configured
+ */
+export function generateMockLevelAnalysis(strokeCount = 5): GeminiLevelAnalysisOutput {
+  return {
+    levelName: 'Doodle Ridge Ascent',
+    levelDescription: 'A hand-drawn alpine obstacle course with ascending platforms and tricky bounce pads.',
+    difficultyRating: strokeCount > 8 ? 'hard' : 'medium',
+    visualStyle: 'Hand-drawn Minimalist Arcade',
+    playerTuning: {
+      speed: 230,
+      jumpPower: 410,
+      gravity: 740,
+    },
+    recognizedElements: ['terraced ground platforms', 'spike pits', 'bounce trampolines', 'bonus coins'],
+    designFeedback: 'Well-paced jump rhythm. Trampoline placement offers rewarding momentum toward the goal.',
+  };
 }

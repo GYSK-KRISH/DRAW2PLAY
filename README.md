@@ -1,24 +1,32 @@
 # 🍌 Draw2Play AI — Hackathon Project Foundation
 
-> **From Sketch to Playable Hero with Image AI.**  
+> **From Sketch to Playable 2D Game with Real Image AI & Arcade Physics.**  
 > Built for the **Banana Hacks 2026** Hackathon | **Theme:** Image AI (October 9–12, 2026)
 
 ---
 
 ## 📖 1. Project Vision
 
-**Draw2Play AI** empowers players to draw a character, pass it to an Image-AI vision model to analyze its visual traits, and immediately transform that drawing into a playable hero inside an interactive browser 2D game.
+**Draw2Play AI** empowers players to draw a custom 2D platformer level by hand, optionally analyze the sketch with Google Gemini Vision AI to interpret visual theme, geometry, and physics tuning, and immediately play the level in an interactive 60 FPS physics engine.
 
 ### The Core Player Journey:
 ```
-[ 1. DRAW ] ➔ [ 2. ANALYZE WITH IMAGE AI ] ➔ [ 3. TRANSFORM ] ➔ [ 4. PLAY ] ➔ [ 5. CUSTOMIZE ]
+[ 1. DRAW ] ➔ [ 2. ANALYZE WITH IMAGE AI / INSTANT LOCAL ] ➔ [ 3. REVIEW SCENE ] ➔ [ 4. PLAY LEVEL ] ➔ [ 5. RETRY / EDIT ]
 ```
 
-1. **DRAW:** Hand-sketch your hero character on the interactive canvas with custom brush sizes, color palettes, and reference guidelines (or pick a quick preset).
-2. **ANALYZE WITH IMAGE AI:** An Image-AI vision pipeline (Google Gemini 3.8 Flash Vision via `@google/genai` SDK) analyzes visual attributes (silhouette, spikes, roundness, density, accessories, dominant colors).
-3. **TRANSFORM:** The AI categorizes your character into a game archetype (`speedster`, `brawler`, `tank`, `mystic`, `balanced`) and computes physics attributes (movement speed, jump power, gravity, vitality).
-4. **PLAY:** Jump directly into a responsive Phaser 2D platformer game where your hand-drawn sketch is the active player sprite colliding with platforms, dodging hazards, and collecting coins at 60 FPS.
-5. **CUSTOMIZE:** Fine-tune physics attributes (speed, jump force, gravity) in real time and see changes reflected instantly in the physics engine.
+1. **DRAW:** Hand-sketch your game level on the interactive studio canvas with 5 semantic element types:
+   - **Ground (Emerald):** Solid walkable terrain and collidable platforms.
+   - **Hazard (Crimson):** Spikes, traps, and lethal danger zones that trigger level restart.
+   - **Trampoline (Cyan):** High-restitution bounce surfaces launching the player into the air.
+   - **Coin (Gold):** Collectible rewards tracked in real-time on the game HUD.
+   - **Goal (Purple):** Level finish flag / portal triggering the victory state.
+2. **ANALYZE WITH IMAGE AI OR INSTANT LOCAL PHYSICS:**
+   - **Live Gemini Vision (`gemini-vision`):** Sends the serialized PNG and stroke blueprint to Google Gemini 3.8 Flash via the `@google/genai` SDK on the backend to assess visual style, level difficulty, player tuning, and semantic geometry.
+   - **Instant Local Vector (`local-vector`):** Zero-latency deterministic conversion directly converting normalized stroke coordinates into segmented Phaser physics platforms, bounce pads, and obstacles without needing an API key or internet access.
+   - **Deterministic Fallback (`mock-fallback`):** Transparently used on the server if `GEMINI_API_KEY` is omitted or API calls fail, with explicit disclaimers.
+3. **REVIEW SCENE:** Inspect detected elements, bounding boxes, level diagnostics, and safety assumptions before launching.
+4. **PLAY LEVEL:** Jump directly into a responsive Phaser 4 2D platformer running Arcade Physics. Control the player with `[A]/[D]` or `[←]/[→]`, jump with `[W]`, `[Space]`, or `[↑]`, collect coins, bounce on trampolines, dodge hazards, and reach the finish flag.
+5. **RETRY / EDIT AGAIN:** Win and defeat overlays provide instant level restart or a one-click return to the studio editor to refine the sketch.
 
 ---
 
@@ -27,7 +35,7 @@
 * **Hackathon:** **Banana Hacks 2026**
 * **Event Window:** October 9, 2026 – October 12, 2026
 * **Authorized Start Window:** Development and commits initiated strictly within the authorized hackathon timeframe (Current timestamp: October 10, 2026).
-* **Theme Alignment:** **Image AI** — Integrating multimodal computer vision and image understanding to drive core gameplay mechanics.
+* **Theme Alignment:** **Image AI** — Integrating multimodal computer vision and sketch image understanding to generate playable 2D game levels.
 * **Code Integrity:** All code in this repository was initiated and developed from scratch during the hackathon window. No legacy project files or pre-event code were used.
 
 ---
@@ -39,13 +47,13 @@ The application is structured into decoupled, modular layers:
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Frontend Framework** | [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) | Declarative UI, state machines, and reactive controls |
-| **Build Tooling** | [Vite 6](https://vite.dev/) | Sub-second HMR and optimized bundler |
+| **Build Tooling** | [Vite 8](https://vite.dev/) | Sub-second HMR and optimized bundler with code-split Phaser chunk |
 | **Styling & Design System** | [Tailwind CSS v4](https://tailwindcss.com/) | Modern glassmorphism, responsive canvas HUD, dark theme |
-| **2D Game Engine** | [Phaser](https://phaser.io/) (Arcade Physics) | 60 FPS platformer physics, tile collisions, camera follow |
+| **2D Game Engine** | [Phaser 4](https://phaser.io/) (Arcade Physics) | 60 FPS platformer physics, segmented platforms, restitution trampolines, coins, hazards |
 | **Backend API** | [Node.js](https://nodejs.org/) + [Express](https://expressjs.com/) | REST API for image receiving, processing, and CORS management |
-| **Schema Validation** | [Zod](https://zod.dev/) | End-to-end runtime validation for character data and env configs |
+| **Schema Validation** | [Zod](https://zod.dev/) | Strict end-to-end runtime validation for scene contracts and env configs |
 | **Image-AI Service** | [`@google/genai`](https://www.npmjs.com/package/@google/genai) | Official Google GenAI SDK powered by `gemini-3.8-flash` |
-| **Offline Fallback** | Deterministic Heuristic Engine | Safe, testable offline development without requiring API keys |
+| **Local Physics Converter** | `sceneConverter.ts` | Deterministic stroke segmentation and world scaling with fallback safety floors and goals |
 
 ---
 
@@ -63,75 +71,73 @@ DRAW2PLAY/
 ├── tsconfig.app.json                  # Frontend TypeScript settings
 ├── tsconfig.node.json                 # Tooling TypeScript settings
 ├── tsconfig.server.json               # Backend TypeScript settings
-├── vite.config.ts                     # Vite + Tailwind + /api proxy configuration
+├── vite.config.ts                     # Vite + Tailwind + /api proxy + Phaser chunking
 │
 ├── server/                            # Node.js + Express Backend API
 │   ├── config.ts                      # Zod-validated environment configuration
 │   ├── index.ts                       # Express server entry point & middleware
 │   ├── routes/
-│   │   ├── ai.routes.ts               # POST /api/ai/analyze-character
+│   │   ├── ai.routes.ts               # POST /api/ai/analyze-level & /analyze-character
 │   │   └── health.routes.ts           # GET /api/health
 │   ├── services/
 │   │   ├── gemini.service.ts          # Gemini 3.8 Flash Multimodal Vision integration
 │   │   └── mock.service.ts            # Deterministic heuristic service for offline dev/test
 │   └── schemas/
-│       └── character.schema.ts        # Zod schema for character analysis output
+│       ├── character.schema.ts        # Zod schema for character analysis output
+│       └── level.schema.ts            # Zod schema for level vision analysis output
 │
 ├── src/                               # Frontend Application
 │   ├── assets/                        # Static SVG and image assets
 │   ├── components/                    # Modular React components
 │   │   ├── canvas/
-│   │   │   ├── DrawingCanvas.tsx      # Interactive 2D drawing canvas
-│   │   │   └── InteractiveCanvas.tsx  # Phase 2 HTML5 2D Canvas engine with DPR, normalized vectors & blueprints
+│   │   │   └── InteractiveCanvas.tsx  # HTML5 Canvas with DPR, normalized vectors & blueprints
 │   │   ├── game/
-│   │   │   └── PhaserGameView.tsx     # Phaser game container lifecycle
-│   │   ├── layout/
-│   │   │   ├── Header.tsx             # Header with hackathon badge and live AI status
-│   │   │   └── TabNavigation.tsx      # 5-step journey navigation tabs
+│   │   │   └── PhaserGameView.tsx     # Phaser 4 game lifecycle, HUD, Win/Lose overlays & restart
 │   │   ├── modals/                    # Studio Dialogs & Confirmation Modals
-│   │   │   ├── AnalyzePreparationModal.tsx  # Prepares image Blob & JSON without faking AI
+│   │   │   ├── AnalyzePreparationModal.tsx  # Synthesis modal (Gemini Vision vs. Instant Local Physics)
 │   │   │   ├── ClearConfirmModal.tsx        # Destructive clear action confirmation
 │   │   │   ├── EmptyCanvasAlertModal.tsx    # Empty sketch alert with starter blueprints
 │   │   │   └── ExportModal.tsx              # PNG & JSON structured export dialog
-│   │   ├── studio/                    # Phase 2 Studio Components
+│   │   ├── studio/                    # Studio Components
 │   │   │   ├── BottomStatusBar.tsx    # Live tool, element, dimensions, and drawing status
-│   │   │   ├── ScenePanel.tsx         # Real-time stroke counts, specs & future AI placeholder
+│   │   │   ├── ScenePanel.tsx         # Real-time stroke counts, specs & AI configuration status
 │   │   │   ├── SketchToolbar.tsx      # Select, Brush, Eraser, sizes & 5 semantic elements
-│   │   │   └── TopBar.tsx             # Studio wordmark, undo/redo, clear, export & analyze actions
-│   │   └── ui/
-│   │       ├── Button.tsx             # Reusable styled button
-│   │       ├── Card.tsx               # Glassmorphic card container
-│   │       └── StatusBadge.tsx        # Status pills and theme badges
-│   ├── game/                          # Phaser Game Engine
-│   │   ├── config.ts                  # Phaser 3 game configuration factory
+│   │   │   └── TopBar.tsx             # Studio wordmark, undo/redo, clear, export, quick play & analyze
+│   ├── game/                          # Phaser 4 Game Engine & Physics
+│   │   ├── config.ts                  # Phaser 4 Arcade Physics configuration factory
+│   │   ├── sceneConverter.ts          # Deterministic sketch-to-game scene geometry converter
 │   │   └── scenes/
-│   │       └── MainScene.ts           # Playable Phaser scene with platforms, player, coins, hazards
+│   │       └── MainScene.ts           # Playable Phaser scene with platforms, hero, coins, trampolines, hazards
 │   ├── services/
-│   │   └── api.ts                     # Frontend API client
+│   │   └── api.ts                     # Frontend API client (health check & level analysis)
 │   ├── types/
-│   │   ├── game.ts                    # Shared game types, Zod schemas, and JourneyStep types
-│   │   └── sketch.ts                  # Phase 2 typed vector model (NormalizedPoint, SketchStroke, Document)
+│   │   ├── game.ts                    # Shared game types & character schemas
+│   │   ├── scene.ts                   # Validated Playable 2D Game Scene contract & Zod schemas
+│   │   └── sketch.ts                  # Typed vector model (NormalizedPoint, SketchStroke, Document)
 │   ├── utils/
-│   │   ├── geometryExtractor.ts       # AABB bounding boxes, centroids, arc lengths & scene geometry
-│   │   ├── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
-│   │   └── strokeSmoother.ts          # Midpoint quadratic & Catmull-Rom smoothing with overshoot damping
-│   ├── App.tsx                        # Root React studio coordinator with shortcuts & state
+│   │   ├── geometryExtractor.ts       # Geometric bounding boxes, centroids, and contour lengths
+│   │   └── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
+│   ├── App.tsx                        # Root React studio & game view coordinator
 │   ├── main.tsx                       # React DOM entry point
 │   └── index.css                      # Tailwind CSS v4 entry point & design tokens
 │
 └── test/
-    ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config
-    └── sketch.test.ts                 # Advanced vector & geometry test suite (12 tests)
+    ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config (5 tests)
+    ├── sketch.test.ts                 # Vector geometry, undo/redo, normalization, JSON export tests (12 tests)
+    └── scene.test.ts                  # Playable physics scene conversion, segmentation & provenance tests (10 tests)
 ```
 
 ---
 
-## 🤖 5. AI-Tool Disclosure
+## 🤖 5. AI-Tool Disclosure & Provenance Integrity
 
 In accordance with official hackathon rules and fair play policies:
 - **Development Assistant:** Developed with the assistance of Google DeepMind's Antigravity AI coding assistant for project scaffolding and pair-programming.
 - **In-Game Image AI:** Powered by the official Google Gemini Vision SDK (`@google/genai`) using `gemini-3.8-flash` for multimodal sketch analysis.
-- **Fair Play Guarantee:** The project includes a transparent fallback engine (`mock-heuristic`) when no API key is provided, clearly indicating whether an analysis came from real `gemini` or `mock-heuristic`. We never pretend AI is integrated before a real request executes.
+- **Strict Provenance Labeling:**
+  - `gemini-vision`: Only returned and displayed when a genuine successful Google Gemini Vision API response is received.
+  - `local-vector`: Explicitly displayed when the user plays using instant deterministic local vector conversion.
+  - `mock-fallback`: Returned when the mock service is used due to an unconfigured or failing API key, clearly labelled with an explanatory notice. We never present mock output as Gemini analysis.
 
 ---
 
@@ -147,13 +153,13 @@ In accordance with official hackathon rules and fair play policies:
 # 1. Install all dependencies
 npm install
 
-# 2. Run Sanity Tests (Verifies Zod schemas, server config, and mock engine)
+# 2. Run Complete Test Suite (27 automated tests across 3 suites)
 npm test
 
-# 3. Run Code Linter
+# 3. Run Code Linter (Oxlint with 0 warnings)
 npm run lint
 
-# 4. Build for Production (Verifies TypeScript and Vite bundling)
+# 4. Build for Production (TypeScript typecheck + Vite code-split bundle)
 npm run build
 
 # 5. Start Full Development Environment (Frontend + Backend concurrently)
@@ -166,68 +172,121 @@ npm run dev:server   # Runs Express API on http://localhost:3001
 
 ---
 
-## 🔑 7. Environment Variables
+## 🔑 7. Environment Variables & Gemini API Configuration
 
 Create a `.env` file in the project root (see [`.env.example`](file:///.env.example)):
 
 ```ini
 PORT=3001
 NODE_ENV=development
-GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_KEY=your_actual_gemini_api_key_here
 GEMINI_MODEL=gemini-3.8-flash
 FRONTEND_URL=http://localhost:5173
 ```
 
-> **Note:** If `GEMINI_API_KEY` is not provided, the server gracefully activates the deterministic heuristic service, allowing full testing of the game loop and canvas without an API key.
+### Security Rules:
+- `GEMINI_API_KEY` is read **exclusively on the backend server** (`server/config.ts`).
+- It is never exposed in client bundles or Vite environment variables (`VITE_*`).
+- `.env` is listed in `.gitignore` and never committed to source control.
+
+### Feature Availability:
+- **With `GEMINI_API_KEY` configured:** Clicking "Analyze Sketch" ➔ "Analyze with Gemini Vision" sends the sketch image to Google Gemini 3.8 Flash, which enriches the level with thematic naming, custom difficulty rating, player physics tuning, and visual feedback (`source: gemini-vision`).
+- **Without `GEMINI_API_KEY`:** 
+  - **Quick Play button:** Instantly launches the level with local vector physics in <5ms (`source: local-vector`).
+  - **Analyze Sketch modal:** Provides an "Instant Local Physics" button to play immediately with local vector conversion, or demonstrates the backend mock fallback path (`source: mock-fallback`).
 
 ---
 
-## 🧪 8. Test Suite Results
+## 🎮 8. How to Draw and Play a Level
 
-Run `npm test` to execute both test suites (17/17 tests passing):
-
-### Suite A: Sanity & Server Architecture (`test/sanity.test.ts`)
-* **Test 1:** `CharacterAttributesSchema` validates valid/invalid attributes
-* **Test 2:** `AnalyzeCharacterRequestSchema` checks base64 payload boundaries
-* **Test 3:** `CharacterAnalysisOutputSchema` validates server output format
-* **Test 4:** Deterministic heuristic mock generates consistent attributes
-* **Test 5:** Server configuration correctly parses environment variables
-
-### Suite B: Advanced Sketch Canvas & Vector Contour Preprocessing (`test/sketch.test.ts`)
-* **Test 1:** Bounding-box calculations (AABB normalization & dimensions)
-* **Test 2:** Normalized coordinate validation & boundary clamping ($0 \le x, y \le 1$)
-* **Test 3:** Centroid calculation (center of mass in unit space)
-* **Test 4:** Stroke-length calculation (normalized arc length & physical pixel scaling)
-* **Test 5:** Empty and malformed strokes handling (safe filtering of NaN/empty arrays)
-* **Test 6:** Single-point and two-point strokes (dot/tap & linear segment geometry)
-* **Test 7:** Semantic type preservation across strokes, exports, and summaries
-* **Test 8:** Undo/redo data integrity (deterministic stroke stack verification)
-* **Test 9:** Serialization and parsing with strict Zod schema validation
-* **Test 10:** Exported coordinate bounds compliance ($[0, 1]$ bounding box constraint)
-* **Test 11:** Empty-canvas image preparation rejection without calling external APIs
-* **Test 12:** Canvas resize preserving the document (zero point loss or drift)
+1. **Draw Your Level:**
+   - Select **Ground** (green) and draw horizontal or terraced platforms.
+   - Select **Hazard** (red) and draw spikes or danger zones.
+   - Select **Trampoline** (cyan) to draw bounce pads for extra jump height.
+   - Select **Coin** (gold) to place collectible reward tokens.
+   - Select **Goal** (purple) to place the victory finish flag.
+   - *(Optional: Click preset blueprints like "Rolling Hills" or "Spike Canyon" from the Empty Sketch dialog)*.
+2. **Launch the Game:**
+   - **Method A (Instant):** Click the green **"Quick Play"** button in the top bar to play immediately with local physics.
+   - **Method B (AI Synthesis):** Click **"Analyze Sketch"** in the top bar ➔ Choose **"Analyze with Gemini Vision"** or **"Instant Local Physics"** ➔ Click **"Play Level Now!"**.
+3. **Control Your Hero:**
+   - **Move Left / Right:** `[A]` / `[D]` or `[←]` / `[→]`
+   - **Jump:** `[W]`, `[Space]`, or `[↑]`
+   - **Collect Coins:** Walk or jump through coins to increase your score (+10 pts each).
+   - **Bounce:** Land on top of trampolines to trigger a high-velocity upward launch.
+   - **Avoid Hazards:** Touching a hazard triggers a crash state and camera shake. Click "Retry Level" to try again.
+   - **Reach the Goal:** Touch the purple Goal portal to trigger the "Level Complete!" victory overlay.
+   - **Back to Editor:** Click "Back to Editor" to modify or extend your drawing anytime.
 
 ---
 
-## 🛑 9. Current Phase Status & Next Step
+## 🧪 9. Automated Test Suite Results
 
-* **Phase 0 Status:** **COMPLETE & VERIFIED**
-  * Project initialized with React 19 + TypeScript + Vite + Tailwind CSS v4 + Phaser + Express + Zod.
-  * Verified with `npm test`, `npm run lint`, and `npm run build`.
-* **Phase 1 / Phase 2 Status:** **COMPLETE & VERIFIED**
-  * HTML5 2D Canvas engine with DPR scaling, pointer capture for mouse/stylus/touch, and `touch-action: none`.
-  * Normalized vector stroke model ($x, y \in [0, 1]$) preserving precision during responsive window resizes.
-  * Midpoint quadratic & Catmull-Rom spline smoothing renderer (`strokeSmoother.ts`) with zero overshoot on sharp turns.
-  * Dedicated deterministic geometry extraction module (`geometryExtractor.ts`) computing bounding boxes, centroids, and arc lengths.
-  * 5 semantic element types with distinct accessible colors, icons, and descriptions: Ground (solid), Hazard (spikes), Trampoline (bounce), Coin (collectible), Goal (destination).
-  * Full deterministic Undo/Redo history stack with shortcut support (`Ctrl+Z`, `Ctrl+Y`).
-  * Destructive Clear action with confirmation modal protecting user artwork.
-  * Export modal supporting both high-resolution PNG downloads (white or transparent background) and Zod-validated vector JSON scene descriptors.
-  * "Analyze Sketch" action that strictly verifies non-empty canvas, extracts PNG blob and structured metrics, and presents prepared payload metrics without faking AI results or calling nonexistent APIs.
-  * Offline fallback / mock-heuristic distinction clearly preserved in the UI and test suites (`geminiConfigured: false`).
-  * Starter blueprints (Rolling Hills, Spike Canyon) for rapid level drafting.
-  * 17/17 automated tests passing, 0 lint errors/warnings, and production bundle verified (`dist/`).
-* **Next Implementation Step:**
-  * **Playable Physics-Game Engine:** Transform normalized vector strokes into active 2D physics colliders, platforms, trampolines, and collectible coins.
-  * **Real Image-AI Vision Integration:** Connect prepared sketch image Blob to Google Gemini Vision (`gemini-3.8-flash`) to semantically classify freehand geometry, detect visual intent, and synthesize level theme attributes.
+Run `npm test` to execute all 3 test suites (**27/27 automated tests passing**):
 
+```
+> tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts
+
+🧪 Starting Draw2Play AI Phase 0 Sanity Test Suite...
+▶ Test 1: CharacterAttributesSchema validates correctly ✓
+▶ Test 2: AnalyzeCharacterRequestSchema validation ✓
+▶ Test 3: Server CharacterAnalysisOutputSchema validation ✓
+▶ Test 4: Mock heuristic service generation ✓
+▶ Test 5: Server configuration values ✓
+🎉 ALL 5 SANITY TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 1 Advanced Vector & Geometry Test Suite...
+▶ Test 1: Bounding-box calculations ✓
+▶ Test 2: Normalized coordinate validation ✓
+▶ Test 3: Centroid calculation ✓
+▶ Test 4: Stroke-length calculation ✓
+▶ Test 5: Empty and malformed strokes ✓
+▶ Test 6: Single-point and two-point strokes ✓
+▶ Test 7: Semantic type preservation ✓
+▶ Test 8: Undo/redo data integrity ✓
+▶ Test 9: Serialization and parsing ✓
+▶ Test 10: Exported coordinate bounds ✓
+▶ Test 11: Empty-canvas image preparation rejection ✓
+▶ Test 12: Canvas resize preserving the document ✓
+🎉 ALL 12 DRAW2PLAY GEOMETRY & SKETCH TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 3 Playable Physics & Level Scene Test Suite...
+▶ Test 1: PlayableGameSceneSchema validates contract ✓
+▶ Test 2: Invalid Scene Schema Rejection ✓
+▶ Test 3: Ground Stroke Segmentation (prevents giant bounding boxes) ✓
+▶ Test 4: Full Multi-Element Level Conversion ✓
+▶ Test 5: Fallback & Diagnostics Warnings (missing Ground & Goal) ✓
+▶ Test 6: Player Spawn Placement Logic ✓
+▶ Test 7: Normalized to World Coordinate Scaling ✓
+▶ Test 8: Strict Provenance Labeling (gemini-vision, local-vector, mock-fallback) ✓
+▶ Test 9: Server Gemini Level Analysis Output Schema ✓
+▶ Test 10: Server Mock Level Analysis Generator ✓
+🎉 ALL 10 PHASE 3 PLAYABLE PHYSICS & SCENE TESTS PASSED SUCCESSFULLY!
+```
+
+---
+
+## 🛑 10. Phase Status & Limitations
+
+* **Phase 0 Status:** **COMPLETE & VERIFIED** (Scaffolding, schemas, health route).
+* **Phase 1 Status:** **COMPLETE & VERIFIED** (Studio interface, layouts, navigation).
+* **Phase 2 Status:** **COMPLETE & VERIFIED** (Interactive canvas, 5 element types, vector normalization, history, presets).
+* **Phase 3 Status:** **COMPLETE & VERIFIED**
+  * Playable 2D platformer engine built with Phaser 4 Arcade Physics.
+  * Ground stroke segmentation: freehand strokes are broken into connected platform slabs rather than a single giant bounding box.
+  * Hazard collision triggering screen shake and defeat overlay.
+  * Elastic trampoline pads with dynamic restitution boost when landed on from above.
+  * Overlap-based collectible coins updating live score and coins collected HUD.
+  * Goal detection with victory overlay and score recap.
+  * Seamless switching between Studio Editor and Playable Game View.
+  * Provenance-tracked Gemini Vision backend route (`gemini-3.8-flash`) via official `@google/genai` SDK.
+  * Zero-latency Local Vector physics conversion ensuring 100% playable game without an API key.
+  * 27 automated unit tests passing, Oxlint clean (0 warnings), and production build verified with code-split Phaser bundle.
+
+### Known Limitations:
+- Real-time Gemini Vision requires an active `GEMINI_API_KEY` with Google AI Studio quota. When absent, the application gracefully provides the local vector and mock fallback paths with explicit notices.
+- Curved strokes with high point counts are segmented into linear platform segments (maximum 40 physics slabs per stroke to preserve 60 FPS performance).
+- Player jump is restricted to grounded state or bounce surfaces (no infinite double jumps).
+
+### Recommended Next Step (Phase 4):
+- **User Playtesting, Audio & Polish:** Add procedural Web Audio effects (jump, bounce, coin chime, defeat buzzer, victory fanfare), particle trails on hero movement, and level blueprint saving/loading to browser LocalStorage.
