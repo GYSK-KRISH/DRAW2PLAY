@@ -2,11 +2,12 @@ import React from 'react';
 import {
   Sparkles,
   CheckCircle2,
-  FileCode,
   Image as ImageIcon,
   Clock,
   X,
   Info,
+  Box,
+  Server,
 } from 'lucide-react';
 import type { SketchDocument, SceneSummary } from '../../types/sketch.js';
 
@@ -15,6 +16,7 @@ interface AnalyzePreparationModalProps {
   blobSize: number;
   document: SketchDocument;
   summary: SceneSummary;
+  geminiConfigured?: boolean;
   onClose: () => void;
 }
 
@@ -23,9 +25,12 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
   blobSize,
   document,
   summary,
+  geminiConfigured = false,
   onClose,
 }) => {
   if (!isOpen) return null;
+
+  const extractedCount = document.extractedElements?.length ?? 0;
 
   return (
     <div
@@ -53,7 +58,24 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
           </button>
         </div>
 
-        {/* Preparation Status Badges */}
+        {/* Server & Pipeline Status Badge */}
+        <div className="p-3 rounded-xl bg-[#060914] border border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <Server className="w-4 h-4 text-slate-500" />
+            <span>Target AI Service:</span>
+          </div>
+          <span
+            className={`font-mono text-[11px] px-2 py-0.5 rounded border font-semibold ${
+              geminiConfigured
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+            }`}
+          >
+            {geminiConfigured ? 'Gemini 3.8 Flash Online' : 'Offline Fallback (Mock-Heuristic Active)'}
+          </span>
+        </div>
+
+        {/* Preparation Status Cards */}
         <div className="grid grid-cols-2 gap-3">
           <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center shrink-0">
@@ -71,14 +93,14 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
 
           <div className="p-3.5 rounded-xl bg-[#060914] border border-slate-800 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 flex items-center justify-center shrink-0">
-              <FileCode className="w-5 h-5" />
+              <Box className="w-5 h-5" />
             </div>
             <div>
               <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">
-                Vector Scene Data
+                Preprocessed Geometry
               </span>
               <span className="text-xs font-mono font-bold text-white">
-                {document.strokes.length} strokes ({summary.totalPoints} pts)
+                {extractedCount} vector elements
               </span>
             </div>
           </div>
@@ -112,14 +134,14 @@ export const AnalyzePreparationModal: React.FC<AnalyzePreparationModalProps> = (
         <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200/90 flex flex-col gap-2">
           <div className="flex items-center gap-2 font-bold text-purple-300">
             <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Phase 2 Boundary: Ready for Phase 3 Integration</span>
+            <span>Deterministic Preprocessing Complete</span>
           </div>
           <p className="text-[11px] text-slate-300 leading-relaxed">
-            The visible sketch canvas has been converted into a high-contrast binary image Blob and normalized JSON vector model. In <strong>Phase 3</strong>, this payload will connect directly to the Gemini Multimodal Vision API to infer level physics.
+            The sketch has been preprocessed into a clean PNG binary image and normalized vector geometry. In <strong>Phase 3</strong>, this payload connects to the vision pipeline to synthesize playable physics.
           </p>
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 pt-1 border-t border-purple-500/20">
             <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span>No external AI API was called; all preparation was validated deterministically.</span>
+            <span>Local geometric preprocessing is deterministic and distinct from live AI execution.</span>
           </div>
         </div>
 

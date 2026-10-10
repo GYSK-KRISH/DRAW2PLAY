@@ -112,14 +112,16 @@ DRAW2PLAY/
 │   │   ├── game.ts                    # Shared game types, Zod schemas, and JourneyStep types
 │   │   └── sketch.ts                  # Phase 2 typed vector model (NormalizedPoint, SketchStroke, Document)
 │   ├── utils/
-│   │   └── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
+│   │   ├── geometryExtractor.ts       # AABB bounding boxes, centroids, arc lengths & scene geometry
+│   │   ├── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
+│   │   └── strokeSmoother.ts          # Midpoint quadratic & Catmull-Rom smoothing with overshoot damping
 │   ├── App.tsx                        # Root React studio coordinator with shortcuts & state
 │   ├── main.tsx                       # React DOM entry point
 │   └── index.css                      # Tailwind CSS v4 entry point & design tokens
 │
 └── test/
     ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config
-    └── sketch.test.ts                 # Phase 2 unit tests (normalization, summaries, JSON export)
+    └── sketch.test.ts                 # Advanced vector & geometry test suite (12 tests)
 ```
 
 ---
@@ -182,7 +184,7 @@ FRONTEND_URL=http://localhost:5173
 
 ## 🧪 8. Test Suite Results
 
-Run `npm test` to execute both test suites (10/10 tests passing):
+Run `npm test` to execute both test suites (17/17 tests passing):
 
 ### Suite A: Sanity & Server Architecture (`test/sanity.test.ts`)
 * **Test 1:** `CharacterAttributesSchema` validates valid/invalid attributes
@@ -191,12 +193,19 @@ Run `npm test` to execute both test suites (10/10 tests passing):
 * **Test 4:** Deterministic heuristic mock generates consistent attributes
 * **Test 5:** Server configuration correctly parses environment variables
 
-### Suite B: Phase 2 Interactive Sketch & Vector Engine (`test/sketch.test.ts`)
-* **Test 1:** Coordinate normalization & clamping ($0 \le x, y \le 1$)
-* **Test 2:** Element definitions structure (Ground, Hazard, Trampoline, Coin, Goal)
-* **Test 3:** Deterministic scene summary calculation (stroke counts & percentages)
-* **Test 4:** Empty scene summary handling
-* **Test 5:** Structured JSON document serialization & schema compliance
+### Suite B: Advanced Sketch Canvas & Vector Contour Preprocessing (`test/sketch.test.ts`)
+* **Test 1:** Bounding-box calculations (AABB normalization & dimensions)
+* **Test 2:** Normalized coordinate validation & boundary clamping ($0 \le x, y \le 1$)
+* **Test 3:** Centroid calculation (center of mass in unit space)
+* **Test 4:** Stroke-length calculation (normalized arc length & physical pixel scaling)
+* **Test 5:** Empty and malformed strokes handling (safe filtering of NaN/empty arrays)
+* **Test 6:** Single-point and two-point strokes (dot/tap & linear segment geometry)
+* **Test 7:** Semantic type preservation across strokes, exports, and summaries
+* **Test 8:** Undo/redo data integrity (deterministic stroke stack verification)
+* **Test 9:** Serialization and parsing with strict Zod schema validation
+* **Test 10:** Exported coordinate bounds compliance ($[0, 1]$ bounding box constraint)
+* **Test 11:** Empty-canvas image preparation rejection without calling external APIs
+* **Test 12:** Canvas resize preserving the document (zero point loss or drift)
 
 ---
 
@@ -205,22 +214,20 @@ Run `npm test` to execute both test suites (10/10 tests passing):
 * **Phase 0 Status:** **COMPLETE & VERIFIED**
   * Project initialized with React 19 + TypeScript + Vite + Tailwind CSS v4 + Phaser + Express + Zod.
   * Verified with `npm test`, `npm run lint`, and `npm run build`.
-* **Phase 1 Status:** **COMPLETE & VERIFIED**
-  * Premium AI Game Studio layout built with dark navy, purple & cyan accents, glassmorphic panels, and crisp typography.
-  * Top navigation with original wordmark emblem, Studio tab, My Creations, and Help modal.
-  * Main workspace comprising Left Toolbar, Center Canvas Viewport, Right Analysis Panel, and Bottom Status Bar.
-  * Lint (0 errors, 0 warnings), sanity tests (all 5 passed), and production build verified.
-* **Phase 2 Status:** **COMPLETE & VERIFIED**
+* **Phase 1 / Phase 2 Status:** **COMPLETE & VERIFIED**
   * HTML5 2D Canvas engine with DPR scaling, pointer capture for mouse/stylus/touch, and `touch-action: none`.
   * Normalized vector stroke model ($x, y \in [0, 1]$) preserving precision during responsive window resizes.
+  * Midpoint quadratic & Catmull-Rom spline smoothing renderer (`strokeSmoother.ts`) with zero overshoot on sharp turns.
+  * Dedicated deterministic geometry extraction module (`geometryExtractor.ts`) computing bounding boxes, centroids, and arc lengths.
   * 5 semantic element types with distinct accessible colors, icons, and descriptions: Ground (solid), Hazard (spikes), Trampoline (bounce), Coin (collectible), Goal (destination).
   * Full deterministic Undo/Redo history stack with shortcut support (`Ctrl+Z`, `Ctrl+Y`).
   * Destructive Clear action with confirmation modal protecting user artwork.
-  * Export modal supporting both high-resolution PNG downloads and structured JSON scene descriptors.
+  * Export modal supporting both high-resolution PNG downloads (white or transparent background) and Zod-validated vector JSON scene descriptors.
   * "Analyze Sketch" action that strictly verifies non-empty canvas, extracts PNG blob and structured metrics, and presents prepared payload metrics without faking AI results or calling nonexistent APIs.
+  * Offline fallback / mock-heuristic distinction clearly preserved in the UI and test suites (`geminiConfigured: false`).
   * Starter blueprints (Rolling Hills, Spike Canyon) for rapid level drafting.
-  * 10/10 automated tests passing, 0 lint errors/warnings, and production bundle verified (`dist/`).
-* **Next Implementation Step (Phase 3):**
+  * 17/17 automated tests passing, 0 lint errors/warnings, and production bundle verified (`dist/`).
+* **Next Implementation Step:**
   * **Playable Physics-Game Engine:** Transform normalized vector strokes into active 2D physics colliders, platforms, trampolines, and collectible coins.
   * **Real Image-AI Vision Integration:** Connect prepared sketch image Blob to Google Gemini Vision (`gemini-3.8-flash`) to semantically classify freehand geometry, detect visual intent, and synthesize level theme attributes.
 

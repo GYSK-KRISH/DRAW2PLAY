@@ -4,34 +4,28 @@ import type {
   SceneSummary,
   SceneElementType,
   NormalizedPoint,
+  PreprocessOptions,
 } from '../types/sketch.js';
+import { SketchDocumentSchema } from '../types/sketch.js';
+import { renderSmoothedStroke } from './strokeSmoother.js';
+import {
+  clamp01,
+  isValidPoint,
+  extractSceneGeometry,
+} from './geometryExtractor.js';
 
-/**
- * Clamp a number to [0, 1] range for normalized points
- */
-export function clamp01(val: number): number {
-  return Math.max(0, Math.min(1, val));
-}
+export { clamp01 };
 
 /**
  * Validates that a point has normalized coordinates between 0 and 1
  */
 export function validateNormalizedPoint(point: NormalizedPoint): boolean {
-  return (
-    typeof point.x === 'number' &&
-    typeof point.y === 'number' &&
-    !isNaN(point.x) &&
-    !isNaN(point.y) &&
-    point.x >= 0 &&
-    point.x <= 1 &&
-    point.y >= 0 &&
-    point.y <= 1
-  );
+  return isValidPoint(point);
 }
 
 /**
  * Render an array of strokes onto a 2D canvas context.
- * Scales normalized [0, 1] points to physical width/height.
+ * Scales normalized [0, 1] points to physical width/height using smooth curvature.
  */
 export function renderStrokesToCanvas(
   ctx: CanvasRenderingContext2D,
@@ -42,11 +36,13 @@ export function renderStrokesToCanvas(
     backgroundColor?: string;
     clearBeforeRender?: boolean;
     scaleWidthWithCanvas?: boolean;
+    smoothingMethod?: 'midpoint-quadratic' | 'catmull-rom';
   }
 ): void {
   const {
     backgroundColor = '#ffffff',
     clearBeforeRender = true,
+    smoothingMethod = 'midpoint-quadratic',
   } = options || {};
 
   if (clearBeforeRender) {
@@ -61,41 +57,11 @@ export function renderStrokesToCanvas(
   for (const stroke of strokes) {
     if (!stroke.points || stroke.points.length === 0) continue;
 
-    ctx.save();
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    const pts = stroke.points;
-
-    if (pts.length === 1) {
-      // Single tap / dot
-      const pt = pts[0];
-      const px = pt.x * width;
-      const py = pt.y * height;
-      ctx.fillStyle = stroke.color;
-      ctx.beginPath();
-      ctx.arc(px, py, stroke.width / 2, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // Multi-point stroke with midpoint quadratic curve smoothing
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x * width, pts[0].y * height);
-
-      for (let i = 1; i < pts.length - 1; i++) {
-        const xc = ((pts[i].x + pts[i + 1].x) / 2) * width;
-        const yc = ((pts[i].y + pts[i + 1].y) / 2) * height;
-        ctx.quadraticCurveTo(pts[i].x * width, pts[i].y * height, xc, yc);
-      }
-
-      // Final segment
-      const last = pts[pts.length - 1];
-      ctx.lineTo(last.x * width, last.y * height);
-      ctx.stroke();
-    }
-
-    ctx.restore();
+    renderSmoothedStroke(ctx, stroke, {
+      canvasWidth: width,
+      canvasHeight: height,
+      smoothingMethod,
+    });
   }
 }
 
@@ -120,6 +86,9 @@ export function calculateSceneSummary(strokes: SketchStroke[]): SceneSummary {
     totalPoints += s.points?.length || 0;
   }
 
+  // Calculate extracted geometric elements
+  const extractedElements = extractSceneGeometry(strokes);
+
   // Rough estimation of serialized memory footprint in bytes
   const estimatedMemoryBytes = JSON.stringify(strokes).length * 2;
 
@@ -133,18 +102,17 @@ export function calculateSceneSummary(strokes: SketchStroke[]): SceneSummary {
     hasCoins: counts.coin > 0,
     hasTrampolines: counts.trampoline > 0,
     estimatedMemoryBytes,
+    extractedElementCount: extractedElements.length,
   };
 }
 
 /**
- * Export visible canvas as PNG data URL with high-contrast background
+ * Export visible canvas as PNG data URL with configurable background (white or transparent)
  */
 export function exportSketchToPng(
   canvas: HTMLCanvasElement,
   backgroundColor = '#ffffff'
 ): string {
-  // If canvas has white background already, toDataURL is immediate
-  // To guarantee predictable background for AI analysis:
   const exportCanvas = document.createElement('canvas');
   exportCanvas.width = canvas.width;
   exportCanvas.height = canvas.height;
@@ -154,13 +122,14 @@ export function exportSketchToPng(
     throw new Error('Failed to create 2D context for PNG export.');
   }
 
-  // Fill solid background
-  ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  if (backgroundColor === 'transparent') {
+    ctx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+  } else {
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  }
 
-  // Draw original canvas over background
   ctx.drawImage(canvas, 0, 0);
-
   return exportCanvas.toDataURL('image/png');
 }
 
@@ -183,8 +152,13 @@ export function exportSketchToBlob(
         return;
       }
 
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      if (backgroundColor === 'transparent') {
+        ctx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+      } else {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      }
+
       ctx.drawImage(canvas, 0, 0);
 
       exportCanvas.toBlob(
@@ -209,4 +183,132 @@ export function exportSketchToBlob(
  */
 export function exportSketchToJson(document: SketchDocument): string {
   return JSON.stringify(document, null, 2);
+}
+
+/**
+ * Validates and serializes a sketch document using strict Zod schema checking
+ */
+export function exportValidatedSketchDocument(document: SketchDocument): {
+  json: string;
+  isValid: boolean;
+  errors?: string[];
+  document: SketchDocument;
+} {
+  const result = SketchDocumentSchema.safeParse(document);
+
+  if (!result.success) {
+    const errorMessages = result.error.issues.map(
+      (issue) => `${issue.path.join('.')}: ${issue.message}`
+    );
+    return {
+      json: JSON.stringify(document, null, 2),
+      isValid: false,
+      errors: errorMessages,
+      document,
+    };
+  }
+
+  return {
+    json: JSON.stringify(result.data, null, 2),
+    isValid: true,
+    document: result.data as SketchDocument,
+  };
+}
+
+/**
+ * Safely parse and validate an imported sketch document JSON string
+ */
+export function parseSketchDocument(jsonString: string): {
+  success: boolean;
+  data?: SketchDocument;
+  error?: string;
+} {
+  try {
+    const parsed = JSON.parse(jsonString);
+    const validated = SketchDocumentSchema.safeParse(parsed);
+
+    if (!validated.success) {
+      return {
+        success: false,
+        error: `Invalid SketchDocument format: ${validated.error.issues.map((i) => i.message).join(', ')}`,
+      };
+    }
+
+    return {
+      success: true,
+      data: validated.data as SketchDocument,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'JSON parse failure',
+    };
+  }
+}
+
+/**
+ * Preprocess a sketch canvas into an image Blob suitable for future AI ingestion
+ * Throws a clear error if the canvas contains zero strokes.
+ * Optionally downscales to maxDimension preserving aspect ratio.
+ */
+export async function preprocessSketchForAi(
+  canvas: HTMLCanvasElement,
+  strokeCount: number,
+  options?: PreprocessOptions
+): Promise<Blob> {
+  if (strokeCount === 0) {
+    throw new Error('Cannot preprocess empty sketch canvas: at least one stroke is required.');
+  }
+
+  const {
+    backgroundColor = '#ffffff',
+    maxDimension = 1024,
+  } = options || {};
+
+  // Compute scaled dimensions preserving aspect ratio
+  let targetWidth = canvas.width;
+  let targetHeight = canvas.height;
+
+  if (targetWidth > maxDimension || targetHeight > maxDimension) {
+    if (targetWidth >= targetHeight) {
+      targetHeight = Math.round((targetHeight / targetWidth) * maxDimension);
+      targetWidth = maxDimension;
+    } else {
+      targetWidth = Math.round((targetWidth / targetHeight) * maxDimension);
+      targetHeight = maxDimension;
+    }
+  }
+
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = targetWidth;
+  exportCanvas.height = targetHeight;
+  const ctx = exportCanvas.getContext('2d');
+
+  if (!ctx) {
+    throw new Error('Failed to create canvas 2D rendering context for AI preprocessing.');
+  }
+
+  if (backgroundColor === 'transparent') {
+    ctx.clearRect(0, 0, targetWidth, targetHeight);
+  } else {
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+  }
+
+  // Draw scaled
+  ctx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+  return new Promise((resolve, reject) => {
+    exportCanvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Canvas toBlob conversion failed.'));
+        }
+      },
+      'image/png',
+      1.0
+    );
+  });
 }

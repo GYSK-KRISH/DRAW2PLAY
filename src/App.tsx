@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { TopBar } from './components/studio/TopBar.js';
 import { SketchToolbar } from './components/studio/SketchToolbar.js';
 import { InteractiveCanvas, type InteractiveCanvasHandle } from './components/canvas/InteractiveCanvas.js';
@@ -17,6 +17,8 @@ import type {
   SketchDocument,
 } from './types/sketch.js';
 import { calculateSceneSummary } from './utils/sketchSerializer.js';
+import { extractSceneGeometry } from './utils/geometryExtractor.js';
+import { fetchHealth } from './services/api.js';
 
 const SESSION_START_TIME = new Date().toISOString();
 
@@ -36,6 +38,28 @@ export function App() {
     height: 500,
   });
 
+  // Backend Health & Gemini Status
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchHealth()
+      .then((data) => {
+        if (mounted) {
+          setGeminiConfigured(Boolean(data.geminiConfigured));
+        }
+      })
+      .catch(() => {
+        // Backend not currently responding or in offline mock mode
+        if (mounted) {
+          setGeminiConfigured(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // Modals Visibility
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
@@ -52,19 +76,24 @@ export function App() {
   // Compute Scene Summary Deterministically
   const sceneSummary = useMemo(() => calculateSceneSummary(strokes), [strokes]);
 
-  // Construct Active Sketch Document
+  // Extract Scene Geometry Deterministically
+  const extractedElements = useMemo(() => extractSceneGeometry(strokes), [strokes]);
+
+  // Construct Active Sketch Document with Zod Schema conventions
   const sketchDocument: SketchDocument = useMemo(() => {
     return {
       id: 'doc-current-session',
       name: 'Draw2Play Level Sketch',
       canvasWidth: canvasDimensions.width,
       canvasHeight: canvasDimensions.height,
+      coordinateConvention: 'normalized-unit',
       strokes,
+      extractedElements,
       createdAt: SESSION_START_TIME,
       updatedAt: SESSION_START_TIME,
       schemaVersion: '1.0',
     };
-  }, [strokes, canvasDimensions]);
+  }, [strokes, canvasDimensions, extractedElements]);
 
   // Handle Analyze Action (Validates prerequisites without faking AI)
   const handleAnalyzeClick = async () => {
@@ -75,7 +104,7 @@ export function App() {
 
     try {
       if (canvasRef.current) {
-        const blob = await canvasRef.current.exportBlob();
+        const blob = await canvasRef.current.exportBlob('#ffffff');
         setPreparedBlobSize(blob.size);
         setIsAnalyzeModalOpen(true);
       }
@@ -149,10 +178,12 @@ export function App() {
             onDrawingStatusChange={setDrawingStatus}
           />
 
-          {/* Right Scene Panel: Element Counts, Technical Specs, Future AI Placeholder */}
+          {/* Right Scene Panel: Element Counts, Extracted Geometry, AI Status */}
           <ScenePanel
             summary={sceneSummary}
             canvasDimensions={canvasDimensions}
+            extractedElements={extractedElements}
+            geminiConfigured={geminiConfigured}
           />
         </div>
       </main>
@@ -177,7 +208,7 @@ export function App() {
       <ExportModal
         isOpen={isExportModalOpen}
         document={sketchDocument}
-        onGetPngDataUrl={() => canvasRef.current?.exportPng() || ''}
+        onGetPngDataUrl={(bgColor) => canvasRef.current?.exportPng(bgColor) || ''}
         onClose={() => setIsExportModalOpen(false)}
       />
 
@@ -186,6 +217,7 @@ export function App() {
         blobSize={preparedBlobSize}
         document={sketchDocument}
         summary={sceneSummary}
+        geminiConfigured={geminiConfigured}
         onClose={() => setIsAnalyzeModalOpen(false)}
       />
 

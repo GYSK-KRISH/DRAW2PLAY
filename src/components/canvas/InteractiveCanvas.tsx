@@ -40,8 +40,8 @@ export interface InteractiveCanvasHandle {
   clear: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
-  exportPng: () => string;
-  exportBlob: () => Promise<Blob>;
+  exportPng: (backgroundColor?: string) => string;
+  exportBlob: (backgroundColor?: string) => Promise<Blob>;
   loadSamplePreset: (preset: 'hills' | 'canyon') => void;
   getDimensions: () => { width: number; height: number };
 }
@@ -343,15 +343,15 @@ export const InteractiveCanvas = forwardRef<InteractiveCanvasHandle, Interactive
     clear: handleClear,
     canUndo: () => strokes.length > 0,
     canRedo: () => redoStack.length > 0,
-    exportPng: () => {
+    exportPng: (backgroundColor = '#ffffff') => {
       const canvas = canvasRef.current;
       if (!canvas) throw new Error('Canvas element not available.');
-      return exportSketchToPng(canvas);
+      return exportSketchToPng(canvas, backgroundColor);
     },
-    exportBlob: () => {
+    exportBlob: (backgroundColor = '#ffffff') => {
       const canvas = canvasRef.current;
       if (!canvas) throw new Error('Canvas element not available.');
-      return exportSketchToBlob(canvas);
+      return exportSketchToBlob(canvas, backgroundColor);
     },
     loadSamplePreset: handleLoadSample,
     getDimensions: () => canvasDimensions,
