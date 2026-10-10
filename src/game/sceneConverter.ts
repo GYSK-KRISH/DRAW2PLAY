@@ -286,3 +286,123 @@ export function convertSketchToPlayableScene(
   // Strictly validate with Zod schema contract
   return PlayableGameSceneSchema.parse(rawScene);
 }
+
+/**
+ * Converts a validated 2D GameGenerationPlan into a PlayableGameScene.
+ */
+export function convertPlanToPlayableScene(
+  plan: import('../types/reference.js').GameGenerationPlan,
+  options: { worldWidth?: number; worldHeight?: number } = {}
+): PlayableGameScene {
+  const worldWidth = options.worldWidth ?? 800;
+  const worldHeight = options.worldHeight ?? 480;
+  const cfg = plan.suggested2DConfig || {
+    theme: 'default' as const,
+    playerSpeed: 240,
+    playerJump: 440,
+    gravity: 750,
+    platformCount: 5,
+    hazardTypes: ['spike'],
+    collectibleTypes: ['coin'],
+  };
+
+  const platforms: PlatformElement[] = [];
+  const hazards: HazardElement[] = [];
+  const coins: CoinElement[] = [];
+
+  // 1. Base floor platform
+  platforms.push({
+    id: `plat-plan-base`,
+    x: 0,
+    y: worldHeight - 36,
+    width: worldWidth,
+    height: 36,
+    strokeColor: '#10b981',
+  });
+
+  // 2. Stepping stone platforms based on plan
+  const count = Math.max(3, Math.min(8, cfg.platformCount));
+  const spacingX = (worldWidth - 200) / count;
+
+  for (let i = 1; i <= count; i++) {
+    const platX = Math.round(60 + (i - 1) * spacingX);
+    const platY = Math.round(worldHeight - 80 - ((i % 3) * 45));
+    const platW = Math.round(100 + ((i % 2) * 30));
+
+    platforms.push({
+      id: `plat-plan-${i}`,
+      x: platX,
+      y: platY,
+      width: platW,
+      height: 20,
+      strokeColor: '#38bdf8',
+    });
+
+    // Add a coin above platform
+    coins.push({
+      id: `coin-plan-${i}`,
+      x: platX + Math.round(platW / 2),
+      y: platY - 32,
+      size: 24,
+      value: 10,
+    });
+
+    // Add a hazard between some platforms
+    if (i === 2 || i === 4) {
+      hazards.push({
+        id: `hazard-plan-${i}`,
+        x: platX + platW + 15,
+        y: worldHeight - 56,
+        width: 32,
+        height: 20,
+        hazardType: 'spike',
+      });
+    }
+  }
+
+  const goal: GoalElement = {
+    id: 'goal-plan',
+    x: worldWidth - 75,
+    y: worldHeight - 110,
+    width: 36,
+    height: 48,
+  };
+
+  const scene = {
+    schemaVersion: '1.0' as const,
+    source: 'gemini-vision' as const,
+    levelName: `${plan.category.toUpperCase()} — Generated Level`,
+    levelDescription: plan.userPrompt,
+    world: {
+      width: worldWidth,
+      height: worldHeight,
+      gravity: cfg.gravity,
+      theme: cfg.theme,
+      friction: cfg.theme === 'ice' ? 0.05 : 0.8,
+      backgroundColor: '#070a13',
+    },
+    player: {
+      spawnX: 70,
+      spawnY: worldHeight - 110,
+      speed: cfg.playerSpeed,
+      jumpPower: cfg.playerJump,
+      size: 36,
+    },
+    platforms,
+    hazards,
+    trampolines: [],
+    coins,
+    goal,
+    diagnostics: {
+      warnings: plan.limitationsAndWarnings,
+      assumptions: [
+        `Generated from multimodal reference plan (${plan.id}).`,
+        `Target category: ${plan.category}.`,
+      ],
+      strokeCount: platforms.length,
+      aiConfidence: 0.9,
+    },
+  };
+
+  return PlayableGameSceneSchema.parse(scene);
+}

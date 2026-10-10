@@ -3,6 +3,7 @@ import cors from 'cors';
 import { serverConfig } from './config.js';
 import { healthRouter } from './routes/health.routes.js';
 import { aiRouter } from './routes/ai.routes.js';
+import { referenceRouter } from './routes/reference.routes.js';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 // Routes
 app.use('/api/health', healthRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/reference', referenceRouter);
 
 // Root route
 app.get('/', (_req: Request, res: Response) => {

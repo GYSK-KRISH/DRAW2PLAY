@@ -9,7 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "server": "tsx server/index.ts",
-    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts",
+    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

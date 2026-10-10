@@ -333,21 +333,22 @@ Draw2Play AI enables creators to transform playable levels using plain English i
 * **Phase 2 Status:** **COMPLETE & VERIFIED** (Interactive canvas, 5 element types, vector normalization, history, presets).
 * **Phase 3 Status:** **COMPLETE & VERIFIED** (Playable physics engine, stroke segmentation, Gemini Vision integration, local vector fallback).
 * **Phase 4 Status:** **COMPLETE & VERIFIED** (Procedural Web Audio API sound engine, Phaser particle systems, persistent My Creations gallery, mobile touch controls).
-* **Phase 5 Status:** **COMPLETE & VERIFIED**
-  * Natural language level transformation modal with prompt input and quick-suggestion chips.
-  * Server endpoint `POST /api/ai/transform-level` with live Gemini integration and offline local rule engine.
-  * Deterministic transformation engine guaranteeing original scene immutability.
-  * Visual themes (Forest, Ice, Lava, Space, Cyberpunk) with theme-specific palettes and ambient environmental particles (snow, embers, stardust, leaves, sparks).
-  * Real ice sliding/glide physics using `world.friction = 0.12`.
-  * Safe coin and hazard placement bounds checking away from player spawn and goal zones.
-  * Saving transformed levels to My Creations with honest provenance badges.
-  * 47 automated tests passing (100%), Oxlint clean (0 warnings), and successful production build.
+* **Phase 5 Status:** **COMPLETE & VERIFIED** (Natural language level transformation, 5 themes with ambient particles, ice friction, difficulty presets).
+* **Phase 6.1 Status:** **COMPLETE & VERIFIED**
+  * **Multimodal Intake Workflow:** Upload game screenshots, concept art, or extract selected video frames directly in-browser using HTML5 `<video>` and `<canvas>`.
+  * **Safe Upload Service (`upload.service.ts`):** Magic byte sniff validation (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WebP `RIFF..WEBP`), dimension bounds (max 4096px), file size limits (max 10MB), path traversal neutralization, and internal asset abstraction.
+  * **Reference Vision Analysis (`referenceAnalysis.service.ts`):** Deduces game category (`voxel`, `2d-platformer`, `isometric`, `3d-world`, `top-down-2d`, `puzzle`), camera perspective, visual style, palette, visible objects, and inferred mechanics with observation grounding.
+  * **Truth in Advertising:** Never fabricates AI analysis; clearly labels provenance (`gemini-vision`, `mock-heuristic`, `manual-input`). Acknowledges single reference frames cannot reconstruct full 3D voxel worlds, interior chunk generation, or hidden source physics.
+  * **Plan Routing & Execution:**
+    * **2D Platformers:** Generates validated `GameGenerationPlan` and immediately launches playable levels into the active Phaser 2D engine.
+    * **Voxel / 3D Games:** Formulates a structured `GameGenerationPlan` with `deferred-future-engine` status, documents missing 3D pipeline requirements (voxel coordinate managers, raymarching, depth buffer), enables JSON export, and preserves the plan in My Creations for the upcoming 3D engine phase.
+  * **Verification:** 57 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passes in 645ms.
 
 ### Known Limitations:
 - AudioContext requires an initial user interaction (click or tap) to unlock audio playback per standard browser security policies.
-- Without a valid `GEMINI_API_KEY` in `.env`, the system automatically falls back to the deterministic local rule engine (`local-rules-transformed`), clearly indicated in the UI.
+- Without a valid `GEMINI_API_KEY` in `.env`, the system automatically falls back to deterministic heuristic reference analysis (`mock-heuristic`), clearly indicated in the UI.
+- Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels and plans are stored as compact vector coordinates to maximize capacity.
+- Phase 6.1 focuses on reference intake, game-type detection, and plan formulation. Full 3D voxel rendering requires a dedicated 3D engine scheduled for a subsequent phase.
 
-- Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels are stored as compact vector coordinates to maximize capacity.
-
-### Recommended Next Step (Phase 6):
-- **Campaign Progression & Level Sharing:** Multi-level adventure campaign mode, collectible star ratings, and community JSON level pack export/import.
+### Recommended Next Step (Phase 6.2):
+- **Structured 3D Voxel Engine Pipeline:** Three.js / WebGL raymarching voxel prototype to consume deferred Phase 6.1 generation plans.

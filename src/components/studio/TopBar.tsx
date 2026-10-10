@@ -12,6 +12,7 @@ import {
   Layers,
   Volume2,
   VolumeX,
+  Boxes,
 } from 'lucide-react';
 import { audioService } from '../../services/audioService.js';
 
@@ -26,6 +27,7 @@ interface TopBarProps {
   onClearClick: () => void;
   onExportClick: () => void;
   onAnalyzeClick: () => void;
+  onReferenceIntakeClick?: () => void;
   onQuickPlayClick?: () => void;
   onOpenCreationsClick?: () => void;
   onSaveClick?: () => void;
@@ -44,6 +46,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onClearClick,
   onExportClick,
   onAnalyzeClick,
+  onReferenceIntakeClick,
   onQuickPlayClick,
   onOpenCreationsClick,
   onSaveClick,
@@ -249,6 +252,26 @@ export const TopBar: React.FC<TopBarProps> = ({
             >
               <Gamepad2 className="w-3.5 h-3.5 text-emerald-200" />
               <span>Quick Play</span>
+            </button>
+          )}
+
+          {/* Multimodal Reference Intake Button (Phase 6.1) */}
+          {onReferenceIntakeClick && (
+            <button
+              type="button"
+              onClick={() => {
+                audioService.playClick();
+                onReferenceIntakeClick();
+              }}
+              title="Upload reference screenshot, image, or video frame to detect game type and generate plan"
+              aria-label="Multimodal Reference Intake"
+              className="px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-[#0e1424] hover:bg-cyan-950/40 text-cyan-300 border border-cyan-800/50 shadow-md hover:border-cyan-500/60 transition-all cursor-pointer active:scale-95"
+            >
+              <Boxes className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Reference Intake</span>
+              <span className="hidden lg:inline text-[9px] font-mono px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300">
+                v6.1
+              </span>
             </button>
           )}
 

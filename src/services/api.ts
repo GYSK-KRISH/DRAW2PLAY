@@ -128,3 +128,94 @@ export async function transformLevelWithAi(
   };
 }
 
+export interface UploadReferenceResponse {
+  success: boolean;
+  reference: import('../types/reference.js').ReferenceInput;
+  error?: string;
+}
+
+export async function uploadReferenceMedia(
+  dataBase64: string,
+  filename?: string,
+  type: 'image' | 'video-frame' | 'sketch' = 'image',
+  userDescription?: string
+): Promise<UploadReferenceResponse> {
+  const response = await fetch('/api/reference/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dataBase64,
+      filename,
+      type,
+      userDescription,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Upload failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export interface AnalyzeReferenceResponse {
+  success: boolean;
+  source: 'gemini-vision' | 'mock-heuristic' | 'manual-input';
+  analysis: import('../types/reference.js').ReferenceAnalysis;
+  notice?: string;
+  error?: string;
+}
+
+export async function analyzeReferenceVision(
+  imageBase64: string,
+  userPrompt?: string
+): Promise<AnalyzeReferenceResponse> {
+  const response = await fetch('/api/reference/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      imageBase64,
+      userPrompt,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Reference analysis failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export interface GeneratePlanResponse {
+  success: boolean;
+  plan: import('../types/reference.js').GameGenerationPlan;
+  error?: string;
+}
+
+export async function requestGamePlan(
+  referenceId: string,
+  userPrompt: string,
+  analysis: import('../types/reference.js').ReferenceAnalysis,
+  targetEngineOverride?: import('../types/reference.js').TargetEngine
+): Promise<GeneratePlanResponse> {
+  const response = await fetch('/api/reference/generate-plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      referenceId,
+      userPrompt,
+      analysis,
+      targetEngineOverride,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.error || `Plan generation failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+

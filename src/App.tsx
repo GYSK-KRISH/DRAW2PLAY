@@ -10,6 +10,7 @@ import { AnalyzePreparationModal } from './components/modals/AnalyzePreparationM
 import { EmptyCanvasAlertModal } from './components/modals/EmptyCanvasAlertModal.js';
 import { HelpModal } from './components/studio/HelpModal.js';
 import { MyCreationsModal } from './components/studio/MyCreationsModal.js';
+import { ReferenceIntakeModal } from './components/studio/ReferenceIntakeModal.js';
 import { PhaserGameView } from './components/game/PhaserGameView.js';
 
 import type {
@@ -19,6 +20,7 @@ import type {
   SketchDocument,
 } from './types/sketch.js';
 import type { PlayableGameScene } from './types/scene.js';
+import type { GameGenerationPlan } from './types/reference.js';
 import { calculateSceneSummary } from './utils/sketchSerializer.js';
 import { extractSceneGeometry } from './utils/geometryExtractor.js';
 import { convertSketchToPlayableScene } from './game/sceneConverter.js';
@@ -91,6 +93,7 @@ export function App() {
   const [isEmptyAlertOpen, setIsEmptyAlertOpen] = useState<boolean>(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
   const [isCreationsModalOpen, setIsCreationsModalOpen] = useState<boolean>(false);
+  const [isReferenceModalOpen, setIsReferenceModalOpen] = useState<boolean>(false);
 
   // Prepared AI Data Payload
   const [preparedBlobSize, setPreparedBlobSize] = useState<number>(0);
@@ -210,6 +213,24 @@ export function App() {
     }
   };
 
+  // Save generated plan to My Creations
+  const handleSavePlanCreation = (plan: GameGenerationPlan) => {
+    try {
+      const saved = saveCreation({
+        name: `Plan: ${plan.category.toUpperCase()} (${plan.targetEngine})`,
+        document: sketchDocument,
+        provenance: 'gemini-vision',
+        tags: [plan.category, plan.targetEngine, plan.status],
+      });
+      const all = getAllCreations();
+      setSavedCreationsCount(all.length);
+      setSaveToastMessage(`Plan "${saved.name}" saved to My Creations!`);
+      setTimeout(() => setSaveToastMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to save plan creation:', err);
+    }
+  };
+
   // Load a saved sketch into the canvas editor
   const handleLoadCreationSketch = (loadedDoc: SketchDocument) => {
     if (canvasRef.current) {
@@ -265,6 +286,7 @@ export function App() {
         onClearClick={() => setIsClearModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
         onAnalyzeClick={handleAnalyzeClick}
+        onReferenceIntakeClick={() => setIsReferenceModalOpen(true)}
         onQuickPlayClick={handleQuickPlay}
         onOpenCreationsClick={() => setIsCreationsModalOpen(true)}
         onSaveClick={handleSaveCurrentCreation}
@@ -386,6 +408,19 @@ export function App() {
         onPlayLevel={handlePlayCreationScene}
         onSaveCurrentSketch={handleSaveCurrentCreation}
         canSaveCurrentSketch={strokes.length > 0}
+      />
+
+      <ReferenceIntakeModal
+        isOpen={isReferenceModalOpen}
+        onClose={() => setIsReferenceModalOpen(false)}
+        onPlayLevel={(scene) => {
+          setActivePlayableScene(scene);
+          setViewMode('playing');
+          setIsReferenceModalOpen(false);
+        }}
+        onSavePlanCreation={handleSavePlanCreation}
+        getCurrentCanvasPng={() => canvasRef.current?.exportPng('#ffffff') || ''}
+        hasCanvasStrokes={strokes.length > 0}
       />
 
       <HelpModal
