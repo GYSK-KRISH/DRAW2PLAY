@@ -81,12 +81,23 @@ DRAW2PLAY/
 │   ├── assets/                        # Static SVG and image assets
 │   ├── components/                    # Modular React components
 │   │   ├── canvas/
-│   │   │   └── DrawingCanvas.tsx      # Interactive 2D drawing canvas
+│   │   │   ├── DrawingCanvas.tsx      # Interactive 2D drawing canvas
+│   │   │   └── InteractiveCanvas.tsx  # Phase 2 HTML5 2D Canvas engine with DPR, normalized vectors & blueprints
 │   │   ├── game/
 │   │   │   └── PhaserGameView.tsx     # Phaser game container lifecycle
 │   │   ├── layout/
 │   │   │   ├── Header.tsx             # Header with hackathon badge and live AI status
 │   │   │   └── TabNavigation.tsx      # 5-step journey navigation tabs
+│   │   ├── modals/                    # Studio Dialogs & Confirmation Modals
+│   │   │   ├── AnalyzePreparationModal.tsx  # Prepares image Blob & JSON without faking AI
+│   │   │   ├── ClearConfirmModal.tsx        # Destructive clear action confirmation
+│   │   │   ├── EmptyCanvasAlertModal.tsx    # Empty sketch alert with starter blueprints
+│   │   │   └── ExportModal.tsx              # PNG & JSON structured export dialog
+│   │   ├── studio/                    # Phase 2 Studio Components
+│   │   │   ├── BottomStatusBar.tsx    # Live tool, element, dimensions, and drawing status
+│   │   │   ├── ScenePanel.tsx         # Real-time stroke counts, specs & future AI placeholder
+│   │   │   ├── SketchToolbar.tsx      # Select, Brush, Eraser, sizes & 5 semantic elements
+│   │   │   └── TopBar.tsx             # Studio wordmark, undo/redo, clear, export & analyze actions
 │   │   └── ui/
 │   │       ├── Button.tsx             # Reusable styled button
 │   │       ├── Card.tsx               # Glassmorphic card container
@@ -98,13 +109,17 @@ DRAW2PLAY/
 │   ├── services/
 │   │   └── api.ts                     # Frontend API client
 │   ├── types/
-│   │   └── game.ts                    # Shared game types, Zod schemas, and JourneyStep types
-│   ├── App.tsx                        # Root React component coordinating the 5-step journey
+│   │   ├── game.ts                    # Shared game types, Zod schemas, and JourneyStep types
+│   │   └── sketch.ts                  # Phase 2 typed vector model (NormalizedPoint, SketchStroke, Document)
+│   ├── utils/
+│   │   └── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
+│   ├── App.tsx                        # Root React studio coordinator with shortcuts & state
 │   ├── main.tsx                       # React DOM entry point
 │   └── index.css                      # Tailwind CSS v4 entry point & design tokens
 │
 └── test/
-    └── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config
+    ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config
+    └── sketch.test.ts                 # Phase 2 unit tests (normalization, summaries, JSON export)
 ```
 
 ---
@@ -167,12 +182,21 @@ FRONTEND_URL=http://localhost:5173
 
 ## 🧪 8. Test Suite Results
 
-Run `npm test` to execute the sanity test suite:
+Run `npm test` to execute both test suites (10/10 tests passing):
+
+### Suite A: Sanity & Server Architecture (`test/sanity.test.ts`)
 * **Test 1:** `CharacterAttributesSchema` validates valid/invalid attributes
 * **Test 2:** `AnalyzeCharacterRequestSchema` checks base64 payload boundaries
 * **Test 3:** `CharacterAnalysisOutputSchema` validates server output format
 * **Test 4:** Deterministic heuristic mock generates consistent attributes
 * **Test 5:** Server configuration correctly parses environment variables
+
+### Suite B: Phase 2 Interactive Sketch & Vector Engine (`test/sketch.test.ts`)
+* **Test 1:** Coordinate normalization & clamping ($0 \le x, y \le 1$)
+* **Test 2:** Element definitions structure (Ground, Hazard, Trampoline, Coin, Goal)
+* **Test 3:** Deterministic scene summary calculation (stroke counts & percentages)
+* **Test 4:** Empty scene summary handling
+* **Test 5:** Structured JSON document serialization & schema compliance
 
 ---
 
@@ -183,10 +207,20 @@ Run `npm test` to execute the sanity test suite:
   * Verified with `npm test`, `npm run lint`, and `npm run build`.
 * **Phase 1 Status:** **COMPLETE & VERIFIED**
   * Premium AI Game Studio layout built with dark navy, purple & cyan accents, glassmorphic panels, and crisp typography.
-  * Top navigation with original wordmark emblem, Studio tab, My Creations (Phase 3 placeholder), and Help modal.
-  * Main workspace comprising Left Toolbar (tools, palette, sizing), Center Canvas Viewport (400×400 canvas, presets, grid overlay), Right Analysis Panel (empty, loading, and active character states), and Secondary Bottom Game Preview (Phaser 2D engine).
-  * Primary actions (Draw Character, Analyze Drawing, Play Character) with prerequisite tooltips and live state indicators.
+  * Top navigation with original wordmark emblem, Studio tab, My Creations, and Help modal.
+  * Main workspace comprising Left Toolbar, Center Canvas Viewport, Right Analysis Panel, and Bottom Status Bar.
   * Lint (0 errors, 0 warnings), sanity tests (all 5 passed), and production build verified.
-* **Next Implementation Step (Phase 2):**
-  * Implementation of real-time advanced stroke smoothing (spline interpolation) and vector contour path export.
-  * Foreground contour extraction and transparent PNG mask processing before Image-AI synthesis.
+* **Phase 2 Status:** **COMPLETE & VERIFIED**
+  * HTML5 2D Canvas engine with DPR scaling, pointer capture for mouse/stylus/touch, and `touch-action: none`.
+  * Normalized vector stroke model ($x, y \in [0, 1]$) preserving precision during responsive window resizes.
+  * 5 semantic element types with distinct accessible colors, icons, and descriptions: Ground (solid), Hazard (spikes), Trampoline (bounce), Coin (collectible), Goal (destination).
+  * Full deterministic Undo/Redo history stack with shortcut support (`Ctrl+Z`, `Ctrl+Y`).
+  * Destructive Clear action with confirmation modal protecting user artwork.
+  * Export modal supporting both high-resolution PNG downloads and structured JSON scene descriptors.
+  * "Analyze Sketch" action that strictly verifies non-empty canvas, extracts PNG blob and structured metrics, and presents prepared payload metrics without faking AI results or calling nonexistent APIs.
+  * Starter blueprints (Rolling Hills, Spike Canyon) for rapid level drafting.
+  * 10/10 automated tests passing, 0 lint errors/warnings, and production bundle verified (`dist/`).
+* **Next Implementation Step (Phase 3):**
+  * **Playable Physics-Game Engine:** Transform normalized vector strokes into active 2D physics colliders, platforms, trampolines, and collectible coins.
+  * **Real Image-AI Vision Integration:** Connect prepared sketch image Blob to Google Gemini Vision (`gemini-3.8-flash`) to semantically classify freehand geometry, detect visual intent, and synthesize level theme attributes.
+

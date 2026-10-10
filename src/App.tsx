@@ -1,225 +1,203 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { StudioHeader } from './components/layout/StudioHeader.js';
-import { PrimaryActionBar } from './components/studio/PrimaryActionBar.js';
-import { DrawingToolbar, type ToolMode } from './components/studio/DrawingToolbar.js';
-import { CanvasViewport, type CanvasViewportHandle } from './components/studio/CanvasViewport.js';
-import { AnalysisPanel } from './components/studio/AnalysisPanel.js';
-import { GamePreviewSection } from './components/studio/GamePreviewSection.js';
+import { useState, useRef, useMemo } from 'react';
+import { TopBar } from './components/studio/TopBar.js';
+import { SketchToolbar } from './components/studio/SketchToolbar.js';
+import { InteractiveCanvas, type InteractiveCanvasHandle } from './components/canvas/InteractiveCanvas.js';
+import { ScenePanel } from './components/studio/ScenePanel.js';
+import { BottomStatusBar } from './components/studio/BottomStatusBar.js';
+import { ClearConfirmModal } from './components/modals/ClearConfirmModal.js';
+import { ExportModal } from './components/modals/ExportModal.js';
+import { AnalyzePreparationModal } from './components/modals/AnalyzePreparationModal.js';
+import { EmptyCanvasAlertModal } from './components/modals/EmptyCanvasAlertModal.js';
 import { HelpModal } from './components/studio/HelpModal.js';
-import { MyCreationsModal } from './components/studio/MyCreationsModal.js';
-import { fetchHealth, analyzeCharacterImage } from './services/api.js';
-import type { CharacterConfig, CharacterAttributes } from './types/game.js';
+
+import type {
+  CanvasTool,
+  SceneElementType,
+  SketchStroke,
+  SketchDocument,
+} from './types/sketch.js';
+import { calculateSceneSummary } from './utils/sketchSerializer.js';
+
+const SESSION_START_TIME = new Date().toISOString();
 
 export function App() {
-  // Navigation State
-  const [currentTab, setCurrentTab] = useState<'studio' | 'creations' | 'help'>('studio');
-  const [activeStage, setActiveStage] = useState<'draw' | 'analyzing' | 'play'>('draw');
-
-  // Drawing Tools State
-  const [currentTool, setCurrentTool] = useState<ToolMode>('brush');
-  const [currentColor, setCurrentColor] = useState<string>('#0f172a');
+  // Tool & Palette State
+  const [currentTool, setCurrentTool] = useState<CanvasTool>('brush');
+  const [selectedElement, setSelectedElement] = useState<SceneElementType>('ground');
   const [brushSize, setBrushSize] = useState<number>(8);
-  const [showGrid, setShowGrid] = useState<boolean>(false);
-  const [hasStrokes, setHasStrokes] = useState<boolean>(false);
+
+  // Canvas Vector Strokes State
+  const [strokes, setStrokes] = useState<SketchStroke[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+  const [drawingStatus, setDrawingStatus] = useState<'idle' | 'drawing'>('idle');
+  const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({
+    width: 800,
+    height: 500,
+  });
 
-  // Character & Analysis State
-  const [characterConfig, setCharacterConfig] = useState<CharacterConfig | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [analysisSource, setAnalysisSource] = useState<'gemini' | 'mock-heuristic' | null>(null);
+  // Modals Visibility
+  const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState<boolean>(false);
+  const [isEmptyAlertOpen, setIsEmptyAlertOpen] = useState<boolean>(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
 
-  // Server & Connection State
-  const [serverStatus, setServerStatus] = useState<{
-    status: string;
-    aiProvider: string;
-    geminiConfigured: boolean;
-  } | undefined>(undefined);
-  const [isRefreshingStatus, setIsRefreshingStatus] = useState<boolean>(false);
+  // Prepared AI Data Payload
+  const [preparedBlobSize, setPreparedBlobSize] = useState<number>(0);
 
-  // Refs
-  const canvasRef = useRef<CanvasViewportHandle>(null);
-  const gameSectionRef = useRef<HTMLDivElement>(null);
+  // Canvas Handle Ref
+  const canvasRef = useRef<InteractiveCanvasHandle>(null);
 
-  // Fetch Backend Status
-  const refreshStatus = useCallback(() => {
-    setIsRefreshingStatus(true);
-    fetchHealth()
-      .then((data) => setServerStatus(data))
-      .catch((err) => {
-        console.warn('Backend status check error:', (err as Error).message);
-      })
-      .finally(() => {
-        setIsRefreshingStatus(false);
-      });
-  }, []);
+  // Compute Scene Summary Deterministically
+  const sceneSummary = useMemo(() => calculateSceneSummary(strokes), [strokes]);
 
-  useEffect(() => {
-    let active = true;
-    fetchHealth()
-      .then((data) => {
-        if (active) setServerStatus(data);
-      })
-      .catch((err) => {
-        console.warn('Backend status check error on mount:', (err as Error).message);
-      });
-    return () => {
-      active = false;
+  // Construct Active Sketch Document
+  const sketchDocument: SketchDocument = useMemo(() => {
+    return {
+      id: 'doc-current-session',
+      name: 'Draw2Play Level Sketch',
+      canvasWidth: canvasDimensions.width,
+      canvasHeight: canvasDimensions.height,
+      strokes,
+      createdAt: SESSION_START_TIME,
+      updatedAt: SESSION_START_TIME,
+      schemaVersion: '1.0',
     };
-  }, []);
+  }, [strokes, canvasDimensions]);
 
-  // Analyze Handler
-  const handleAnalyze = async (dataUrl?: string) => {
-    const imagePayload = dataUrl || canvasRef.current?.getCanvasDataUrl();
-    if (!imagePayload) {
-      setAnalysisError('No sketch data available to analyze.');
+  // Handle Analyze Action (Validates prerequisites without faking AI)
+  const handleAnalyzeClick = async () => {
+    if (strokes.length === 0) {
+      setIsEmptyAlertOpen(true);
       return;
     }
 
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-    setActiveStage('analyzing');
-
     try {
-      const response = await analyzeCharacterImage(imagePayload);
-
-      const newConfig: CharacterConfig = {
-        id: `hero-${Date.now()}`,
-        attributes: response.attributes,
-        drawingDataUrl: imagePayload,
-        createdAt: new Date().toISOString(),
-      };
-
-      setCharacterConfig(newConfig);
-      setAnalysisSource(response.source);
-      setActiveStage('play');
-
-      // Smooth scroll to preview if on mobile/smaller screens
-      setTimeout(() => {
-        gameSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 200);
-    } catch (err: unknown) {
-      console.error('Character analysis failed:', err);
-      setAnalysisError((err as Error).message || 'Failed to analyze character sketch.');
-      setActiveStage('draw');
-    } finally {
-      setIsAnalyzing(false);
+      if (canvasRef.current) {
+        const blob = await canvasRef.current.exportBlob();
+        setPreparedBlobSize(blob.size);
+        setIsAnalyzeModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Failed to prepare sketch image blob:', err);
     }
   };
 
-  // Fine-tune Attributes
-  const handleAttributeChange = (key: keyof CharacterAttributes, value: number) => {
-    if (!characterConfig) return;
-    setCharacterConfig({
-      ...characterConfig,
-      attributes: {
-        ...characterConfig.attributes,
-        [key]: value,
-      },
-    });
-  };
-
-  // Primary Action Bar triggers
-  const handleDrawClick = () => {
-    setActiveStage('draw');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handlePlayClick = () => {
-    setActiveStage('play');
-    gameSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y)
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        canvasRef.current?.redo();
+      } else {
+        canvasRef.current?.undo();
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      e.preventDefault();
+      canvasRef.current?.redo();
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black">
-      {/* 1. TOP NAVIGATION */}
-      <StudioHeader
-        currentTab={currentTab}
-        onTabChange={setCurrentTab}
-        serverStatus={serverStatus}
-        isRefreshingStatus={isRefreshingStatus}
-        onRefreshStatus={refreshStatus}
+    <div
+      onKeyDown={handleKeyDown}
+      className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black outline-none"
+    >
+      {/* 1. TOP BAR */}
+      <TopBar
+        canUndo={canUndo}
+        canRedo={canRedo}
+        strokeCount={strokes.length}
+        onUndo={() => canvasRef.current?.undo()}
+        onRedo={() => canvasRef.current?.redo()}
+        onClearClick={() => setIsClearModalOpen(true)}
+        onExportClick={() => setIsExportModalOpen(true)}
+        onAnalyzeClick={handleAnalyzeClick}
+        onHelpClick={() => setIsHelpModalOpen(true)}
       />
 
-      {/* 2. MAIN WORKSPACE CONTAINER */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col gap-4">
-        {/* Primary Action Bar */}
-        <PrimaryActionBar
-          activeStage={activeStage}
-          hasStrokes={hasStrokes}
-          hasAnalyzedCharacter={Boolean(characterConfig)}
-          isAnalyzing={isAnalyzing}
-          onDrawClick={handleDrawClick}
-          onAnalyzeClick={() => handleAnalyze()}
-          onPlayClick={handlePlayClick}
-        />
-
-        {/* 3-Column Studio Workspace */}
+      {/* 2. MAIN APPLICATION WORKSPACE */}
+      <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col gap-4">
         <div className="flex flex-col lg:flex-row gap-4 items-stretch">
-          {/* Left: Drawing Tools */}
-          <DrawingToolbar
+          {/* Left Toolbar: Canvas Tools, Sizes, and Semantic Element Palette */}
+          <SketchToolbar
             currentTool={currentTool}
             onSelectTool={setCurrentTool}
-            currentColor={currentColor}
-            onSelectColor={setCurrentColor}
+            selectedElement={selectedElement}
+            onSelectElement={setSelectedElement}
             brushSize={brushSize}
             onSelectBrushSize={setBrushSize}
-            showGrid={showGrid}
-            onToggleGrid={() => setShowGrid(!showGrid)}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={() => canvasRef.current?.undo()}
-            onRedo={() => canvasRef.current?.redo()}
-            onClear={() => canvasRef.current?.clear()}
           />
 
-          {/* Center: Canvas Viewport */}
-          <CanvasViewport
+          {/* Center Canvas: Responsive HTML5 Canvas with normalized vector strokes */}
+          <InteractiveCanvas
             ref={canvasRef}
             currentTool={currentTool}
-            currentColor={currentColor}
+            selectedElement={selectedElement}
             brushSize={brushSize}
-            showGrid={showGrid}
-            isAnalyzing={isAnalyzing}
-            onAnalyze={handleAnalyze}
-            onStrokesChange={setHasStrokes}
+            onStrokesChange={(newStrokes) => {
+              setStrokes(newStrokes);
+              if (canvasRef.current) {
+                setCanvasDimensions(canvasRef.current.getDimensions());
+              }
+            }}
             onHistoryChange={(undoable, redoable) => {
               setCanUndo(undoable);
               setCanRedo(redoable);
             }}
+            onDrawingStatusChange={setDrawingStatus}
           />
 
-          {/* Right: AI Analysis Panel */}
-          <AnalysisPanel
-            characterConfig={characterConfig}
-            isAnalyzing={isAnalyzing}
-            analysisError={analysisError}
-            analysisSource={analysisSource}
-            onAttributeChange={handleAttributeChange}
-            onPlayClick={handlePlayClick}
-            onClearError={() => setAnalysisError(null)}
-          />
-        </div>
-
-        {/* 3. SECONDARY BOTTOM AREA: 2D GAME PREVIEW */}
-        <div ref={gameSectionRef} className="pt-2">
-          <GamePreviewSection
-            characterConfig={characterConfig}
-            onDrawNewClick={handleDrawClick}
+          {/* Right Scene Panel: Element Counts, Technical Specs, Future AI Placeholder */}
+          <ScenePanel
+            summary={sceneSummary}
+            canvasDimensions={canvasDimensions}
           />
         </div>
       </main>
 
-      {/* MODALS */}
-      <HelpModal
-        isOpen={currentTab === 'help'}
-        onClose={() => setCurrentTab('studio')}
+      {/* 3. BOTTOM STATUS BAR */}
+      <BottomStatusBar
+        currentTool={currentTool}
+        selectedElement={selectedElement}
+        canvasDimensions={canvasDimensions}
+        drawingStatus={drawingStatus}
+        summary={sceneSummary}
       />
 
-      <MyCreationsModal
-        isOpen={currentTab === 'creations'}
-        onClose={() => setCurrentTab('studio')}
+      {/* 4. MODALS & POPUPS */}
+      <ClearConfirmModal
+        isOpen={isClearModalOpen}
+        strokeCount={strokes.length}
+        onConfirm={() => canvasRef.current?.clear()}
+        onClose={() => setIsClearModalOpen(false)}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        document={sketchDocument}
+        onGetPngDataUrl={() => canvasRef.current?.exportPng() || ''}
+        onClose={() => setIsExportModalOpen(false)}
+      />
+
+      <AnalyzePreparationModal
+        isOpen={isAnalyzeModalOpen}
+        blobSize={preparedBlobSize}
+        document={sketchDocument}
+        summary={sceneSummary}
+        onClose={() => setIsAnalyzeModalOpen(false)}
+      />
+
+      <EmptyCanvasAlertModal
+        isOpen={isEmptyAlertOpen}
+        onClose={() => setIsEmptyAlertOpen(false)}
+        onLoadPreset={(preset) => canvasRef.current?.loadSamplePreset(preset)}
+      />
+
+      <HelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
       />
     </div>
   );
