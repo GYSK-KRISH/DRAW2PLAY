@@ -1,8 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { serverConfig } from '../config.js';
-import { analyzeCharacterWithGemini, analyzeLevelWithGemini } from '../services/gemini.service.js';
+import {
+  analyzeCharacterWithGemini,
+  analyzeLevelWithGemini,
+  transformLevelWithGemini,
+} from '../services/gemini.service.js';
 import { generateMockCharacterAttributes, generateMockLevelAnalysis } from '../services/mock.service.js';
+import { TransformLevelRequestSchema } from '../schemas/transformation.schema.js';
+import { interpretInstructionLocally } from '../../src/services/localRuleParser.js';
+import { applyTransformations } from '../../src/game/transformationEngine.js';
 
 export const aiRouter = Router();
 
@@ -129,3 +136,98 @@ aiRouter.post('/analyze-level', async (req: Request, res: Response): Promise<voi
     });
   }
 });
+
+/**
+ * Natural Language Level Transformation Endpoint
+ */
+aiRouter.post('/transform-level', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = TransformLevelRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Validation failed for level transformation request',
+        details: parseResult.error.flatten(),
+      });
+      return;
+    }
+
+    const { scene, instruction } = parseResult.data;
+
+    // 1. Live Gemini AI Path (when API key is present)
+    if (serverConfig.geminiApiKey) {
+      try {
+        const geminiResult = await transformLevelWithGemini(scene, instruction);
+        const transformed = applyTransformations(
+          scene,
+          geminiResult.operations,
+          'gemini-transformed'
+        );
+
+        res.json({
+          success: true,
+          source: 'gemini',
+          operations: geminiResult.operations,
+          explanation: geminiResult.explanation,
+          warnings: [...geminiResult.warnings, ...transformed.warnings],
+          transformedScene: transformed.transformedScene,
+          diagnostics: transformed.diagnostics,
+        });
+        return;
+      } catch (geminiError: unknown) {
+        console.warn(
+          'Gemini level transformation failed, falling back to local rule engine:',
+          (geminiError as Error).message
+        );
+        const localResult = interpretInstructionLocally(instruction, scene);
+        const transformed = applyTransformations(
+          scene,
+          localResult.operations,
+          'local-rules-transformed'
+        );
+
+        res.json({
+          success: true,
+          source: 'local-rules',
+          operations: localResult.operations,
+          explanation: localResult.explanation,
+          warnings: [
+            `Live Gemini call failed (${(geminiError as Error).message}). Switched to local rule engine.`,
+            ...localResult.warnings,
+            ...transformed.warnings,
+          ],
+          transformedScene: transformed.transformedScene,
+          diagnostics: transformed.diagnostics,
+          notice: 'Gemini API encountered an error. Evaluated with local rules fallback.',
+        });
+        return;
+      }
+    }
+
+    // 2. Offline / Deterministic Local Rule Engine Path
+    const localResult = interpretInstructionLocally(instruction, scene);
+    const transformed = applyTransformations(
+      scene,
+      localResult.operations,
+      'local-rules-transformed'
+    );
+
+    res.json({
+      success: true,
+      source: 'local-rules',
+      operations: localResult.operations,
+      explanation: localResult.explanation,
+      warnings: [...localResult.warnings, ...transformed.warnings],
+      transformedScene: transformed.transformedScene,
+      diagnostics: transformed.diagnostics,
+      notice: 'Deterministic local rules applied (GEMINI_API_KEY not set).',
+    });
+  } catch (error: unknown) {
+    console.error('Unhandled level transformation error:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message || 'Internal server error during level transformation',
+    });
+  }
+});
+

@@ -1,7 +1,13 @@
+import { z } from 'zod';
 import { GoogleGenAI } from '@google/genai';
 import { serverConfig } from '../config.js';
 import { CharacterAnalysisOutput, CharacterAnalysisOutputSchema } from '../schemas/character.schema.js';
 import { GeminiLevelAnalysisOutput, GeminiLevelAnalysisOutputSchema } from '../schemas/level.schema.js';
+import {
+  TransformationOperationSchema,
+  type TransformationOperation,
+} from '../schemas/transformation.schema.js';
+import type { PlayableGameScene } from '../../src/types/scene.js';
 
 let genAIClient: GoogleGenAI | null = null;
 
@@ -132,3 +138,75 @@ Output raw JSON only without markdown formatting.`;
 
   return GeminiLevelAnalysisOutputSchema.parse(parsed);
 }
+
+export interface GeminiTransformationOutput {
+  operations: TransformationOperation[];
+  explanation: string;
+  warnings: string[];
+}
+
+export async function transformLevelWithGemini(
+  scene: PlayableGameScene,
+  instruction: string
+): Promise<GeminiTransformationOutput> {
+  const client = getGenAIClient();
+  if (!client) {
+    throw new Error('GEMINI_API_KEY is not configured on the server');
+  }
+
+  const prompt = `You are a creative 2D physics game level designer for Draw2Play AI.
+The user wants to transform their existing 2D platformer level based on this natural language instruction:
+"${instruction}"
+
+Current Scene Context:
+- Theme: ${scene.world.theme}
+- Gravity: ${scene.world.gravity}
+- Friction: ${scene.world.friction}
+- Player Speed: ${scene.player.speed}
+- Player Jump: ${scene.player.jumpPower}
+- Platforms: ${scene.platforms.length}
+- Coins: ${scene.coins.length}
+- Hazards: ${scene.hazards.length}
+
+Choose applicable transformation operations to fulfill the request. Return STRICT JSON conforming to this schema:
+{
+  "operations": [
+    { "type": "set_theme", "theme": "default" | "forest" | "ice" | "lava" | "space" | "cyberpunk" },
+    { "type": "set_difficulty", "difficulty": "easy" | "normal" | "hard" },
+    { "type": "adjust_physics", "gravity": number between 200 and 2000, "friction": number between 0.01 and 1.0 },
+    { "type": "add_coins", "count": integer between 1 and 20 },
+    { "type": "adjust_coin_density", "multiplier": number between 0.2 and 3.0 },
+    { "type": "add_hazards", "count": integer between 1 and 15, "hazardType": "spike" | "lava" },
+    { "type": "adjust_hazard_density", "multiplier": number between 0.0 and 3.0 },
+    { "type": "adjust_player_jump", "jumpPower": integer between 200 and 700, "multiplier": number between 0.5 and 2.0 },
+    { "type": "adjust_player_speed", "speed": integer between 80 and 500, "multiplier": number between 0.5 and 2.0 },
+    { "type": "set_environment_effects", "effect": "none" | "snow" | "embers" | "stardust" | "sparks" | "leaves" }
+  ],
+  "explanation": "1-2 sentence lively summary of how the level was transformed to fulfill the user's vision",
+  "warnings": ["any constraint warnings, or empty array if none"]
+}
+Output raw JSON only without markdown formatting.`;
+
+  const response = await client.models.generateContent({
+    model: serverConfig.geminiModel,
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }],
+      },
+    ],
+  });
+
+  const responseText = response.text || '';
+  const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  const TransformationOutputSchema = z.object({
+    operations: z.array(TransformationOperationSchema),
+    explanation: z.string(),
+    warnings: z.array(z.string()).default([]),
+  });
+
+  return TransformationOutputSchema.parse(parsed);
+}
+

@@ -279,26 +279,75 @@ Run `npm test` to execute all 4 test suites (**37/37 automated tests passing**):
 ▶ Test 9: Saved Playable Scene Ready for Immediate Launch ✓
 ▶ Test 10: Clean Storage Reset ✓
 🎉 ALL 10 PHASE 4 STORAGE & POLISH TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 5 Natural Language Transformation Test Suite...
+▶ Test 1: Transformation Operation Schema Validation ✓
+▶ Test 2: Invalid Operations Rejection ✓
+▶ Test 3: Original Scene Immutability ✓
+▶ Test 4: Real Ice Friction & Acceleration Physics ✓
+▶ Test 5: Difficulty Presets Mechanics ✓
+▶ Test 6: Coin and Hazard Placement Boundaries ✓
+▶ Test 7: Deterministic Natural Language Local Rule Parser ✓
+▶ Test 8: Unsupported Instruction Handling ✓
+▶ Test 9: Saving Transformed Level in My Creations ✓
+▶ Test 10: Backward Compatibility with Existing Un-themed Scenes ✓
+🎉 ALL 10 PHASE 5 TRANSFORMATION TESTS PASSED SUCCESSFULLY!
 ```
 
 ---
 
-## 🛑 11. Phase Status & Limitations
+## 🎨 11. Phase 5: Natural Language Level Transformation & AI Polish
+
+Draw2Play AI enables creators to transform playable levels using plain English instructions without modifying the underlying vector sketch.
+
+### Transformation Loop:
+1. **Draw** on the interactive studio canvas.
+2. **Play** immediately with Quick Play or Vision synthesis.
+3. **Describe a Change** in plain English (e.g. *"Make this level icy and slippery with falling snow"*).
+4. **Preview** the side-by-side comparison of themes, friction, coins, and difficulty.
+5. **Apply & Play** the transformed level immediately, or **Apply & Save** as a new creation.
+
+### Supported Visual Themes:
+- **Default / Studio:** Emerald platforms, dark navy grid, balanced physics.
+- **Forest:** Earthy mossy platforms, canopy background, ambient falling leaves.
+- **Ice:** Crystalline sapphire platforms, arctic gradient, ambient snow, and **authentic low-friction (0.12) ice sliding physics**.
+- **Lava:** Volcanic basalt platforms, obsidian gradient, ambient floating embers, molten lava hazards.
+- **Space:** Lunar surface platforms, deep cosmic void, ambient twinkling stardust, floaty low gravity (380).
+- **Cyberpunk:** Neon grid steel platforms, magenta/cyan rims, ambient cyber sparks, enhanced run speed.
+
+### Difficulty Presets:
+- **Easy:** Reduces lethal hazards by 50%, buffs player jump clearance, adds bonus coins.
+- **Normal:** Balanced standard challenge.
+- **Hard:** Adds 2-3 additional hazard obstacles along platform surfaces, tightens player tempo.
+
+### Provenance Transparency:
+- **`gemini-transformed`:** Produced by live Gemini API call on the server.
+- **`local-rules-transformed`:** Produced by the deterministic local natural language rule engine.
+
+---
+
+## 🛑 12. Phase Status & Limitations
 
 * **Phase 0 Status:** **COMPLETE & VERIFIED** (Scaffolding, schemas, health route).
 * **Phase 1 Status:** **COMPLETE & VERIFIED** (Studio interface, layouts, navigation).
 * **Phase 2 Status:** **COMPLETE & VERIFIED** (Interactive canvas, 5 element types, vector normalization, history, presets).
 * **Phase 3 Status:** **COMPLETE & VERIFIED** (Playable physics engine, stroke segmentation, Gemini Vision integration, local vector fallback).
-* **Phase 4 Status:** **COMPLETE & VERIFIED**
-  * Procedural Web Audio API sound engine (jumps, bounces, coins, hazards, fanfare, clicks) with mute/volume controls.
-  * Phaser particle systems (running dust, landing puffs, bounce sparkles, coin chimes, victory confetti, hazard flashes).
-  * Persistent My Creations gallery with browser `localStorage`, Zod schema validation, duplicate, rename, delete, search, and instant play.
-  * Responsive mobile touch controls with virtual D-Pad and Jump button.
-  * 37 automated unit tests passing, Oxlint clean (0 warnings), and production build verified with code-split Phaser bundle.
+* **Phase 4 Status:** **COMPLETE & VERIFIED** (Procedural Web Audio API sound engine, Phaser particle systems, persistent My Creations gallery, mobile touch controls).
+* **Phase 5 Status:** **COMPLETE & VERIFIED**
+  * Natural language level transformation modal with prompt input and quick-suggestion chips.
+  * Server endpoint `POST /api/ai/transform-level` with live Gemini integration and offline local rule engine.
+  * Deterministic transformation engine guaranteeing original scene immutability.
+  * Visual themes (Forest, Ice, Lava, Space, Cyberpunk) with theme-specific palettes and ambient environmental particles (snow, embers, stardust, leaves, sparks).
+  * Real ice sliding/glide physics using `world.friction = 0.12`.
+  * Safe coin and hazard placement bounds checking away from player spawn and goal zones.
+  * Saving transformed levels to My Creations with honest provenance badges.
+  * 47 automated tests passing (100%), Oxlint clean (0 warnings), and successful production build.
 
 ### Known Limitations:
 - AudioContext requires an initial user interaction (click or tap) to unlock audio playback per standard browser security policies.
+- Without a valid `GEMINI_API_KEY` in `.env`, the system automatically falls back to the deterministic local rule engine (`local-rules-transformed`), clearly indicated in the UI.
+
 - Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels are stored as compact vector coordinates to maximize capacity.
 
-### Recommended Next Step (Phase 5):
-- **Natural Language Level Remixing & AI Customization:** Allow players to type natural language prompts (e.g. "make platforms icy", "add high bounce trampolines", "turn gravity to low moon gravity") and use Gemini to remix active levels dynamically.
+### Recommended Next Step (Phase 6):
+- **Campaign Progression & Level Sharing:** Multi-level adventure campaign mode, collectible star ratings, and community JSON level pack export/import.

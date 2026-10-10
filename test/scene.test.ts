@@ -29,6 +29,10 @@ const validScene: PlayableGameScene = {
     height: 480,
     gravity: 750,
     backgroundColor: '#070a13',
+    theme: 'default',
+    friction: 1.0,
+    difficulty: 'normal',
+    ambientEffect: 'none',
   },
   player: {
     spawnX: 80,

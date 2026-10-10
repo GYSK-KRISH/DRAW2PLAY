@@ -161,9 +161,9 @@ export function App() {
     setIsMuted(nextMute);
   };
 
-  // Save current sketch to My Creations
-  const handleSaveCurrentCreation = () => {
-    if (strokes.length === 0) {
+  // Save current sketch or transformed scene to My Creations
+  const handleSaveCurrentCreation = (sceneToSave?: PlayableGameScene) => {
+    if (strokes.length === 0 && !sceneToSave) {
       setIsEmptyAlertOpen(true);
       return;
     }
@@ -178,17 +178,25 @@ export function App() {
         // Thumbnail optional
       }
 
-      const playableScene = convertSketchToPlayableScene(sketchDocument, {
-        source: 'local-vector',
-        levelName: sketchDocument.name || 'Doodle Creation',
-      });
+      const playableScene =
+        sceneToSave ||
+        convertSketchToPlayableScene(sketchDocument, {
+          source: 'local-vector',
+          levelName: sketchDocument.name || 'Doodle Creation',
+        });
+
+      const levelTitle =
+        sceneToSave?.levelName ||
+        sketchDocument.name ||
+        `Level ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
       const saved = saveCreation({
-        name: sketchDocument.name || `Level ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        name: levelTitle,
         document: sketchDocument,
         playableScene,
         thumbnailDataUrl,
-        provenance: 'local-vector',
+        provenance: playableScene.source || 'local-vector',
+        tags: sceneToSave?.world.theme ? [sceneToSave.world.theme, sceneToSave.world.difficulty] : [],
       });
 
       const all = getAllCreations();
@@ -278,6 +286,7 @@ export function App() {
             sceneData={activePlayableScene}
             onBackToEditor={() => setViewMode('studio')}
             onSaveCreation={handleSaveCurrentCreation}
+            geminiConfigured={geminiConfigured}
           />
         </main>
       ) : (

@@ -29,6 +29,10 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
       height: 480,
       gravity: characterConfig?.attributes.gravity || 750,
       backgroundColor: '#070a13',
+      theme: 'default',
+      friction: 1.0,
+      difficulty: 'normal',
+      ambientEffect: 'none',
     },
     player: {
       spawnX: 80,

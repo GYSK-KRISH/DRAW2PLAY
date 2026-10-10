@@ -29,6 +29,7 @@ export class MainScene extends Phaser.Scene {
   private bounceEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private confettiEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private hazardEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private ambientEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
 
   private sceneData?: PlayableGameScene;
   private onGameStateChange?: (state: GamePlayState, score: number, coinsCollected: number) => void;
@@ -174,20 +175,81 @@ export class MainScene extends Phaser.Scene {
       g.generateTexture('particle-confetti', 6, 6);
       g.destroy();
     }
+
+    // 7. Ambient Environmental Particle Textures
+    if (!this.textures.exists('particle-snow')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xe0f2fe, 1);
+      g.fillCircle(3, 3, 3);
+      g.generateTexture('particle-snow', 6, 6);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-ember')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xf97316, 1);
+      g.fillCircle(3, 3, 2.5);
+      g.fillStyle(0xfef08a, 1);
+      g.fillCircle(3, 3, 1);
+      g.generateTexture('particle-ember', 6, 6);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-stardust')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x818cf8, 1);
+      g.fillCircle(2.5, 2.5, 2);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(2.5, 2.5, 1);
+      g.generateTexture('particle-stardust', 5, 5);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-leaf')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x4ade80, 1);
+      g.fillRect(0, 0, 5, 3);
+      g.generateTexture('particle-leaf', 5, 3);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-spark')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x00f0ff, 1);
+      g.fillRect(0, 0, 4, 4);
+      g.generateTexture('particle-spark', 4, 4);
+      g.destroy();
+    }
   }
 
   create() {
     const width = this.sceneData?.world.width ?? 800;
     const height = this.sceneData?.world.height ?? 480;
+    const theme = this.sceneData?.world.theme ?? 'default';
 
-    // Background aesthetics
+    // Theme color palettes
+    const themePalettes: Record<
+      string,
+      { bgTop: number; bgBottom: number; grid: number; platFill: number; platLine: number; platCap: number }
+    > = {
+      default: { bgTop: 0x070a13, bgBottom: 0x111827, grid: 0x1f2937, platFill: 0x10b981, platLine: 0x059669, platCap: 0x34d399 },
+      forest: { bgTop: 0x052e16, bgBottom: 0x0f172a, grid: 0x14532d, platFill: 0x15803d, platLine: 0x14532d, platCap: 0x4ade80 },
+      ice: { bgTop: 0x082f49, bgBottom: 0x0369a1, grid: 0x0284c7, platFill: 0x38bdf8, platLine: 0x0284c7, platCap: 0xe0f2fe },
+      lava: { bgTop: 0x1c1917, bgBottom: 0x450a0a, grid: 0x7f1d1d, platFill: 0x292524, platLine: 0x78716c, platCap: 0xf97316 },
+      space: { bgTop: 0x030712, bgBottom: 0x1e1b4b, grid: 0x4338ca, platFill: 0x475569, platLine: 0x334155, platCap: 0x818cf8 },
+      cyberpunk: { bgTop: 0x09090b, bgBottom: 0x2e1065, grid: 0xd946ef, platFill: 0x18181b, platLine: 0x06b6d4, platCap: 0xd946ef },
+    };
+
+    const palette = themePalettes[theme] || themePalettes.default;
+
+    // Background aesthetics with theme gradients
     const bgGradient = this.add.graphics();
-    bgGradient.fillGradientStyle(0x070a13, 0x070a13, 0x111827, 0x111827, 1);
+    bgGradient.fillGradientStyle(palette.bgTop, palette.bgTop, palette.bgBottom, palette.bgBottom, 1);
     bgGradient.fillRect(0, 0, width, height);
 
     // Grid lines for game aesthetic
     const gridGraphics = this.add.graphics();
-    gridGraphics.lineStyle(1, 0x1f2937, 0.4);
+    gridGraphics.lineStyle(1, palette.grid, theme === 'ice' || theme === 'cyberpunk' ? 0.2 : 0.4);
     for (let x = 0; x <= width; x += 40) {
       gridGraphics.lineBetween(x, 0, x, height);
     }
@@ -205,21 +267,19 @@ export class MainScene extends Phaser.Scene {
     ];
 
     for (const plat of platData) {
-      // Create individual procedural graphics for each platform to fit its exact dimensions
-      const platTextureKey = `plat-tex-${plat.id}`;
+      // Create individual procedural graphics for each platform styled to current theme
+      const platTextureKey = `plat-tex-${plat.id}-${theme}`;
       if (!this.textures.exists(platTextureKey)) {
         const pg = this.make.graphics({ x: 0, y: 0 });
-        const fillCol = 0x10b981;
-        const lineCol = 0x059669;
 
-        pg.fillStyle(fillCol, 1);
+        pg.fillStyle(palette.platFill, 1);
         pg.fillRoundedRect(0, 0, plat.width, plat.height, 4);
 
-        pg.lineStyle(2, lineCol, 1);
+        pg.lineStyle(2, palette.platLine, 1);
         pg.strokeRoundedRect(0, 0, plat.width, plat.height, 4);
 
-        // Grass/top highlight line
-        pg.fillStyle(0x34d399, 1);
+        // Highlight cap line
+        pg.fillStyle(palette.platCap, 1);
         pg.fillRect(2, 1, Math.max(1, plat.width - 4), 3);
 
         pg.generateTexture(platTextureKey, plat.width, plat.height);
@@ -364,6 +424,78 @@ export class MainScene extends Phaser.Scene {
       lifespan: 350,
       emitting: false,
     });
+
+    // -----------------------------------------------------------------------
+    // F2. AMBIENT ENVIRONMENTAL PARTICLES
+    // -----------------------------------------------------------------------
+    const ambientEffect =
+      this.sceneData?.world.ambientEffect && this.sceneData.world.ambientEffect !== 'none'
+        ? this.sceneData.world.ambientEffect
+        : theme === 'ice'
+        ? 'snow'
+        : theme === 'lava'
+        ? 'embers'
+        : theme === 'space'
+        ? 'stardust'
+        : theme === 'forest'
+        ? 'leaves'
+        : theme === 'cyberpunk'
+        ? 'sparks'
+        : 'none';
+
+    if (ambientEffect === 'snow') {
+      this.ambientEmitter = this.add.particles(0, 0, 'particle-snow', {
+        x: { min: 0, max: width },
+        y: 0,
+        lifespan: 2800,
+        speedY: { min: 45, max: 85 },
+        speedX: { min: -25, max: 25 },
+        scale: { start: 1, end: 0.4 },
+        alpha: { start: 0.8, end: 0.1 },
+        frequency: 140,
+      });
+    } else if (ambientEffect === 'embers') {
+      this.ambientEmitter = this.add.particles(0, 0, 'particle-ember', {
+        x: { min: 0, max: width },
+        y: height,
+        lifespan: 2200,
+        speedY: { min: -40, max: -80 },
+        speedX: { min: -20, max: 20 },
+        scale: { start: 1.2, end: 0.2 },
+        alpha: { start: 0.9, end: 0 },
+        frequency: 160,
+      });
+    } else if (ambientEffect === 'stardust') {
+      this.ambientEmitter = this.add.particles(0, 0, 'particle-stardust', {
+        x: { min: 0, max: width },
+        y: { min: 0, max: height },
+        lifespan: 1800,
+        speed: { min: 5, max: 20 },
+        scale: { start: 0.2, end: 1 },
+        alpha: { start: 0.1, end: 0.8 },
+        frequency: 200,
+      });
+    } else if (ambientEffect === 'leaves') {
+      this.ambientEmitter = this.add.particles(0, 0, 'particle-leaf', {
+        x: { min: 0, max: width },
+        y: 0,
+        lifespan: 2500,
+        speedY: { min: 35, max: 70 },
+        speedX: { min: -30, max: 30 },
+        rotate: { min: 0, max: 360 },
+        alpha: { start: 0.8, end: 0.2 },
+        frequency: 220,
+      });
+    } else if (ambientEffect === 'sparks') {
+      this.ambientEmitter = this.add.particles(0, 0, 'particle-spark', {
+        x: { min: 0, max: width },
+        y: { min: 0, max: height },
+        lifespan: 600,
+        speed: { min: 30, max: 90 },
+        scale: { start: 1.2, end: 0 },
+        frequency: 180,
+      });
+    }
 
     // -----------------------------------------------------------------------
     // G. PLAYER SPAWN & HERO CONTROLS
@@ -514,9 +646,17 @@ export class MainScene extends Phaser.Scene {
     }
     this.wasGrounded = isGrounded;
 
-    // Horizontal Movement
+    // Horizontal Movement with Real Ice Friction / Acceleration
+    const friction = this.sceneData?.world.friction ?? 1.0;
+    const isIceFriction = friction < 0.8;
+
     if (left) {
-      this.player.setVelocityX(-speed);
+      if (isIceFriction) {
+        const curVx = this.player.body.velocity.x;
+        this.player.setVelocityX(curVx + (-speed - curVx) * 0.14);
+      } else {
+        this.player.setVelocityX(-speed);
+      }
       this.player.setFlipX(true);
 
       // Running dust puffs
@@ -525,7 +665,12 @@ export class MainScene extends Phaser.Scene {
         this.lastDustTime = time;
       }
     } else if (right) {
-      this.player.setVelocityX(speed);
+      if (isIceFriction) {
+        const curVx = this.player.body.velocity.x;
+        this.player.setVelocityX(curVx + (speed - curVx) * 0.14);
+      } else {
+        this.player.setVelocityX(speed);
+      }
       this.player.setFlipX(false);
 
       // Running dust puffs
@@ -534,7 +679,13 @@ export class MainScene extends Phaser.Scene {
         this.lastDustTime = time;
       }
     } else {
-      this.player.setVelocityX(0);
+      if (isIceFriction) {
+        // Ice deceleration / slide
+        const curVx = this.player.body.velocity.x;
+        this.player.setVelocityX(Math.abs(curVx) < 6 ? 0 : curVx * 0.93);
+      } else {
+        this.player.setVelocityX(0);
+      }
     }
 
     // Jump only when on ground (no infinite mid-air jumps)
@@ -553,6 +704,8 @@ export class MainScene extends Phaser.Scene {
   }
 
   public restartGame(newSceneData?: PlayableGameScene) {
+    this.ambientEmitter?.destroy();
+    this.ambientEmitter = undefined;
     const nextData = newSceneData ?? this.sceneData;
     this.scene.restart({
       sceneData: nextData,

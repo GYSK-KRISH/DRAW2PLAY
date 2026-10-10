@@ -16,32 +16,38 @@ import {
   ChevronRight,
   ArrowUp,
   Gamepad2,
+  Wand2,
 } from 'lucide-react';
 import { createGameConfig } from '../../game/config.js';
 import { MainScene } from '../../game/scenes/MainScene.js';
 import type { PlayableGameScene, GamePlayState } from '../../types/scene.js';
 import { audioService } from '../../services/audioService.js';
+import { TransformationModal } from '../studio/TransformationModal.js';
 
 interface PhaserGameViewProps {
   sceneData: PlayableGameScene;
   onBackToEditor: () => void;
-  onSaveCreation?: () => void;
+  onSaveCreation?: (sceneToSave?: PlayableGameScene) => void;
+  geminiConfigured?: boolean;
 }
 
 export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
   sceneData,
   onBackToEditor,
   onSaveCreation,
+  geminiConfigured = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
 
+  const [activeScene, setActiveScene] = useState<PlayableGameScene>(sceneData);
   const [gameState, setGameState] = useState<GamePlayState>('ready');
   const [score, setScore] = useState<number>(0);
   const [coinsCollected, setCoinsCollected] = useState<number>(0);
   const [isMuted, setIsMuted] = useState<boolean>(audioService.getIsMuted());
   const [hasSavedCreation, setHasSavedCreation] = useState<boolean>(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(true);
+  const [isTransformModalOpen, setIsTransformModalOpen] = useState<boolean>(false);
 
   const handleGameStateChange = useCallback((
     newState: GamePlayState,
@@ -69,12 +75,12 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
       const scene = game.scene.getScene('MainScene') as MainScene;
       if (scene) {
         scene.scene.restart({
-          sceneData,
+          sceneData: activeScene,
           onGameStateChange: handleGameStateChange,
         });
       }
     });
-  }, [sceneData, handleGameStateChange]);
+  }, [activeScene, handleGameStateChange]);
 
   useEffect(() => {
     initGame();
@@ -96,7 +102,7 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
     if (gameRef.current) {
       const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
       if (scene) {
-        scene.restartGame(sceneData);
+        scene.restartGame(activeScene);
       }
     }
   };
@@ -112,7 +118,27 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
   const handleSaveClick = () => {
     audioService.playClick();
     if (onSaveCreation) {
-      onSaveCreation();
+      onSaveCreation(activeScene);
+      setHasSavedCreation(true);
+    }
+  };
+
+  const handleApplyTransformation = (newScene: PlayableGameScene, saveToCreations?: boolean) => {
+    setActiveScene(newScene);
+    setGameState('playing');
+    setScore(0);
+    setCoinsCollected(0);
+    setHasSavedCreation(false);
+
+    if (gameRef.current) {
+      const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+      if (scene) {
+        scene.restartGame(newScene);
+      }
+    }
+
+    if (saveToCreations && onSaveCreation) {
+      onSaveCreation(newScene);
       setHasSavedCreation(true);
     }
   };
@@ -150,21 +176,31 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
           </button>
 
           <span className="font-bold text-white text-xs sm:text-sm truncate max-w-[140px] sm:max-w-[200px]">
-            {sceneData.levelName}
+            {activeScene.levelName}
           </span>
 
           {/* AI Provenance Badge */}
-          {sceneData.source === 'gemini-vision' && (
+          {activeScene.source === 'gemini-vision' && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> <span className="hidden sm:inline">Gemini Vision AI</span>
             </span>
           )}
-          {sceneData.source === 'local-vector' && (
+          {activeScene.source === 'gemini-transformed' && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+              <Wand2 className="w-3 h-3" /> <span className="hidden sm:inline">Gemini Transformed</span>
+            </span>
+          )}
+          {activeScene.source === 'local-rules-transformed' && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+              <Wand2 className="w-3 h-3" /> <span className="hidden sm:inline">AI Transformed (Local)</span>
+            </span>
+          )}
+          {activeScene.source === 'local-vector' && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
               <Cpu className="w-3 h-3" /> <span className="hidden sm:inline">Local Vector Physics</span>
             </span>
           )}
-          {sceneData.source === 'mock-fallback' && (
+          {activeScene.source === 'mock-fallback' && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
               <ShieldAlert className="w-3 h-3" /> <span className="hidden sm:inline">Mock Fallback</span>
             </span>
@@ -207,6 +243,21 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
             }`}
           >
             <Gamepad2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* AI Transform Button in Top HUD */}
+          <button
+            type="button"
+            onClick={() => {
+              audioService.playClick();
+              setIsTransformModalOpen(true);
+            }}
+            title="Transform Level with Natural Language AI"
+            aria-label="Transform Level"
+            className="px-2.5 py-1 rounded-lg bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 hover:text-white border border-purple-800/60 transition-colors flex items-center gap-1 cursor-pointer font-semibold text-xs focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none"
+          >
+            <Wand2 className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">AI Transform</span>
           </button>
 
           {/* Restart Level Button */}
@@ -307,6 +358,18 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
                 <span>Play Again</span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  audioService.playClick();
+                  setIsTransformModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-950/50 active:scale-95"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span>Transform with AI</span>
+              </button>
+
               {onSaveCreation && (
                 <button
                   type="button"
@@ -363,6 +426,17 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
                 type="button"
                 onClick={() => {
                   audioService.playClick();
+                  setIsTransformModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-950/50 active:scale-95"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span>AI Transform</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  audioService.playClick();
                   onBackToEditor();
                 }}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -373,6 +447,15 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* TRANSFORMATION MODAL */}
+        <TransformationModal
+          isOpen={isTransformModalOpen}
+          currentScene={activeScene}
+          geminiConfigured={geminiConfigured}
+          onApplyTransformation={handleApplyTransformation}
+          onClose={() => setIsTransformModalOpen(false)}
+        />
       </div>
     </div>
   );

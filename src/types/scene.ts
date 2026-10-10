@@ -3,13 +3,55 @@ import { z } from 'zod';
 /**
  * Provenance source of the scene definition
  */
-export type SceneProvenanceSource = 'gemini-vision' | 'local-vector' | 'mock-fallback';
+export type SceneProvenanceSource =
+  | 'gemini-vision'
+  | 'local-vector'
+  | 'mock-fallback'
+  | 'gemini-transformed'
+  | 'local-rules-transformed';
 
 export const SceneProvenanceSourceSchema = z.enum([
   'gemini-vision',
   'local-vector',
   'mock-fallback',
+  'gemini-transformed',
+  'local-rules-transformed',
 ]);
+
+/**
+ * Visual themes supported by the renderer
+ */
+export const LevelThemeSchema = z.enum([
+  'default',
+  'forest',
+  'ice',
+  'lava',
+  'space',
+  'cyberpunk',
+]);
+
+export type LevelTheme = z.infer<typeof LevelThemeSchema>;
+
+/**
+ * Difficulty presets
+ */
+export const LevelDifficultySchema = z.enum(['easy', 'normal', 'hard']);
+
+export type LevelDifficulty = z.infer<typeof LevelDifficultySchema>;
+
+/**
+ * Ambient environmental particle effects
+ */
+export const AmbientEffectSchema = z.enum([
+  'none',
+  'snow',
+  'embers',
+  'stardust',
+  'sparks',
+  'leaves',
+]);
+
+export type AmbientEffect = z.infer<typeof AmbientEffectSchema>;
 
 /**
  * World and physics configuration
@@ -19,6 +61,10 @@ export const WorldConfigSchema = z.object({
   height: z.number().int().min(300).max(2160).default(480),
   gravity: z.number().min(200).max(2000).default(750),
   backgroundColor: z.string().default('#070a13'),
+  theme: LevelThemeSchema.default('default'),
+  friction: z.number().min(0.01).max(1.0).default(1.0),
+  difficulty: LevelDifficultySchema.default('normal'),
+  ambientEffect: AmbientEffectSchema.default('none'),
 });
 
 export type WorldConfig = z.infer<typeof WorldConfigSchema>;
