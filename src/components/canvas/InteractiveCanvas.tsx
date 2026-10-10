@@ -43,6 +43,7 @@ export interface InteractiveCanvasHandle {
   exportPng: (backgroundColor?: string) => string;
   exportBlob: (backgroundColor?: string) => Promise<Blob>;
   loadSamplePreset: (preset: 'hills' | 'canyon') => void;
+  loadStrokes: (strokes: SketchStroke[]) => void;
   getDimensions: () => { width: number; height: number };
 }
 
@@ -334,6 +335,12 @@ export const InteractiveCanvas = forwardRef<InteractiveCanvasHandle, Interactive
     }
   }, [strokes]);
 
+  const handleLoadStrokes = useCallback((newStrokes: SketchStroke[]) => {
+    setUndoStack((prev) => [...prev, strokes]);
+    setRedoStack([]);
+    setStrokes(newStrokes);
+  }, [strokes]);
+
   // Expose Imperative API via ref
   useImperativeHandle(ref, () => ({
     getCanvasElement: () => canvasRef.current,
@@ -354,8 +361,9 @@ export const InteractiveCanvas = forwardRef<InteractiveCanvasHandle, Interactive
       return exportSketchToBlob(canvas, backgroundColor);
     },
     loadSamplePreset: handleLoadSample,
+    loadStrokes: handleLoadStrokes,
     getDimensions: () => canvasDimensions,
-  }), [handleUndo, handleRedo, handleClear, handleLoadSample, strokes, redoStack.length, canvasDimensions]);
+  }), [handleUndo, handleRedo, handleClear, handleLoadSample, handleLoadStrokes, strokes, redoStack.length, canvasDimensions]);
 
   // Pointer Event Handlers (High Accuracy & Normalization)
   const getNormalizedCoordinates = (e: React.PointerEvent<HTMLCanvasElement>): NormalizedPoint | null => {

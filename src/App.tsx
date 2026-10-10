@@ -9,6 +9,7 @@ import { ExportModal } from './components/modals/ExportModal.js';
 import { AnalyzePreparationModal } from './components/modals/AnalyzePreparationModal.js';
 import { EmptyCanvasAlertModal } from './components/modals/EmptyCanvasAlertModal.js';
 import { HelpModal } from './components/studio/HelpModal.js';
+import { MyCreationsModal } from './components/studio/MyCreationsModal.js';
 import { PhaserGameView } from './components/game/PhaserGameView.js';
 
 import type {
@@ -22,6 +23,8 @@ import { calculateSceneSummary } from './utils/sketchSerializer.js';
 import { extractSceneGeometry } from './utils/geometryExtractor.js';
 import { convertSketchToPlayableScene } from './game/sceneConverter.js';
 import { fetchHealth } from './services/api.js';
+import { getAllCreations, saveCreation } from './services/creationStorage.js';
+import { audioService } from './services/audioService.js';
 
 const SESSION_START_TIME = new Date().toISOString();
 
@@ -48,6 +51,19 @@ export function App() {
   // Backend Health & Gemini Status
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
 
+  // Audio State
+  const [isMuted, setIsMuted] = useState<boolean>(audioService.getIsMuted());
+
+  // Creations Gallery Count & Notification
+  const [savedCreationsCount, setSavedCreationsCount] = useState<number>(() => {
+    try {
+      return getAllCreations().length;
+    } catch {
+      return 0;
+    }
+  });
+  const [saveToastMessage, setSaveToastMessage] = useState<string | null>(null);
+
   useEffect(() => {
     let mounted = true;
     fetchHealth()
@@ -62,6 +78,7 @@ export function App() {
           setGeminiConfigured(false);
         }
       });
+
     return () => {
       mounted = false;
     };
@@ -73,6 +90,7 @@ export function App() {
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState<boolean>(false);
   const [isEmptyAlertOpen, setIsEmptyAlertOpen] = useState<boolean>(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
+  const [isCreationsModalOpen, setIsCreationsModalOpen] = useState<boolean>(false);
 
   // Prepared AI Data Payload
   const [preparedBlobSize, setPreparedBlobSize] = useState<number>(0);
@@ -137,7 +155,72 @@ export function App() {
     setViewMode('playing');
   };
 
-  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y) in Editor Mode
+  // Toggle Mute Handler
+  const handleToggleMute = () => {
+    const nextMute = audioService.toggleMute();
+    setIsMuted(nextMute);
+  };
+
+  // Save current sketch to My Creations
+  const handleSaveCurrentCreation = () => {
+    if (strokes.length === 0) {
+      setIsEmptyAlertOpen(true);
+      return;
+    }
+
+    try {
+      let thumbnailDataUrl: string | undefined;
+      try {
+        if (canvasRef.current) {
+          thumbnailDataUrl = canvasRef.current.exportPng('#0a0e1c');
+        }
+      } catch {
+        // Thumbnail optional
+      }
+
+      const playableScene = convertSketchToPlayableScene(sketchDocument, {
+        source: 'local-vector',
+        levelName: sketchDocument.name || 'Doodle Creation',
+      });
+
+      const saved = saveCreation({
+        name: sketchDocument.name || `Level ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        document: sketchDocument,
+        playableScene,
+        thumbnailDataUrl,
+        provenance: 'local-vector',
+      });
+
+      const all = getAllCreations();
+      setSavedCreationsCount(all.length);
+
+      // Show brief confirmation toast
+      setSaveToastMessage(`"${saved.name}" saved to My Creations!`);
+      setTimeout(() => setSaveToastMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to save creation:', err);
+    }
+  };
+
+  // Load a saved sketch into the canvas editor
+  const handleLoadCreationSketch = (loadedDoc: SketchDocument) => {
+    if (canvasRef.current) {
+      canvasRef.current.loadStrokes(loadedDoc.strokes);
+    } else {
+      setStrokes(loadedDoc.strokes);
+    }
+    setViewMode('studio');
+    setSaveToastMessage(`Loaded "${loadedDoc.name || 'Saved Level'}" into studio!`);
+    setTimeout(() => setSaveToastMessage(null), 3000);
+  };
+
+  // Play a saved creation directly in the physics engine
+  const handlePlayCreationScene = (scene: PlayableGameScene) => {
+    setActivePlayableScene(scene);
+    setViewMode('playing');
+  };
+
+  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+S) in Editor Mode
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (viewMode !== 'studio') return;
 
@@ -151,6 +234,9 @@ export function App() {
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
       e.preventDefault();
       canvasRef.current?.redo();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      handleSaveCurrentCreation();
     }
   };
 
@@ -164,14 +250,26 @@ export function App() {
         canUndo={canUndo}
         canRedo={canRedo}
         strokeCount={strokes.length}
+        savedCreationsCount={savedCreationsCount}
+        isMuted={isMuted}
         onUndo={() => canvasRef.current?.undo()}
         onRedo={() => canvasRef.current?.redo()}
         onClearClick={() => setIsClearModalOpen(true)}
         onExportClick={() => setIsExportModalOpen(true)}
         onAnalyzeClick={handleAnalyzeClick}
         onQuickPlayClick={handleQuickPlay}
+        onOpenCreationsClick={() => setIsCreationsModalOpen(true)}
+        onSaveClick={handleSaveCurrentCreation}
+        onToggleMute={handleToggleMute}
         onHelpClick={() => setIsHelpModalOpen(true)}
       />
+
+      {/* Floating Save Toast Notification */}
+      {saveToastMessage && (
+        <div className="fixed top-16 right-6 z-50 px-4 py-2 rounded-xl bg-cyan-600 text-white font-bold text-xs shadow-xl shadow-cyan-950/60 animate-in fade-in duration-200 flex items-center gap-2">
+          <span>✓ {saveToastMessage}</span>
+        </div>
+      )}
 
       {/* 2. ACTIVE VIEWPORT: PLAYABLE GAME ENGINE OR STUDIO CANVAS */}
       {viewMode === 'playing' && activePlayableScene ? (
@@ -179,6 +277,7 @@ export function App() {
           <PhaserGameView
             sceneData={activePlayableScene}
             onBackToEditor={() => setViewMode('studio')}
+            onSaveCreation={handleSaveCurrentCreation}
           />
         </main>
       ) : (
@@ -269,6 +368,15 @@ export function App() {
         isOpen={isEmptyAlertOpen}
         onClose={() => setIsEmptyAlertOpen(false)}
         onLoadPreset={(preset) => canvasRef.current?.loadSamplePreset(preset)}
+      />
+
+      <MyCreationsModal
+        isOpen={isCreationsModalOpen}
+        onClose={() => setIsCreationsModalOpen(false)}
+        onLoadSketch={handleLoadCreationSketch}
+        onPlayLevel={handlePlayCreationScene}
+        onSaveCurrentSketch={handleSaveCurrentCreation}
+        canSaveCurrentSketch={strokes.length > 0}
       />
 
       <HelpModal

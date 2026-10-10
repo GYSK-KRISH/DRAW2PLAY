@@ -1,17 +1,17 @@
 # 🍌 Draw2Play AI — Hackathon Project Foundation
 
-> **From Sketch to Playable 2D Game with Real Image AI & Arcade Physics.**  
+> **From Sketch to Playable 2D Game with Real Image AI, Arcade Physics, Audio & Saved Creations.**  
 > Built for the **Banana Hacks 2026** Hackathon | **Theme:** Image AI (October 9–12, 2026)
 
 ---
 
 ## 📖 1. Project Vision
 
-**Draw2Play AI** empowers players to draw a custom 2D platformer level by hand, optionally analyze the sketch with Google Gemini Vision AI to interpret visual theme, geometry, and physics tuning, and immediately play the level in an interactive 60 FPS physics engine.
+**Draw2Play AI** empowers players to draw a custom 2D platformer level by hand, optionally analyze the sketch with Google Gemini Vision AI to interpret visual theme, geometry, and physics tuning, save and manage custom creations locally, and immediately play the level in an interactive 60 FPS physics engine with procedural sound effects and particle polish.
 
 ### The Core Player Journey:
 ```
-[ 1. DRAW ] ➔ [ 2. ANALYZE WITH IMAGE AI / INSTANT LOCAL ] ➔ [ 3. REVIEW SCENE ] ➔ [ 4. PLAY LEVEL ] ➔ [ 5. RETRY / EDIT ]
+[ 1. DRAW ] ➔ [ 2. ANALYZE / QUICK PLAY ] ➔ [ 3. REVIEW SCENE ] ➔ [ 4. PLAY LEVEL ] ➔ [ 5. SAVE / RETRY / EDIT ]
 ```
 
 1. **DRAW:** Hand-sketch your game level on the interactive studio canvas with 5 semantic element types:
@@ -25,8 +25,8 @@
    - **Instant Local Vector (`local-vector`):** Zero-latency deterministic conversion directly converting normalized stroke coordinates into segmented Phaser physics platforms, bounce pads, and obstacles without needing an API key or internet access.
    - **Deterministic Fallback (`mock-fallback`):** Transparently used on the server if `GEMINI_API_KEY` is omitted or API calls fail, with explicit disclaimers.
 3. **REVIEW SCENE:** Inspect detected elements, bounding boxes, level diagnostics, and safety assumptions before launching.
-4. **PLAY LEVEL:** Jump directly into a responsive Phaser 4 2D platformer running Arcade Physics. Control the player with `[A]/[D]` or `[←]/[→]`, jump with `[W]`, `[Space]`, or `[↑]`, collect coins, bounce on trampolines, dodge hazards, and reach the finish flag.
-5. **RETRY / EDIT AGAIN:** Win and defeat overlays provide instant level restart or a one-click return to the studio editor to refine the sketch.
+4. **PLAY LEVEL WITH SOUND & PARTICLES:** Jump directly into a responsive Phaser 4 2D platformer running Arcade Physics. Control the player with `[A]/[D]` or `[←]/[→]` (or on-screen touch controls), jump with `[W]`, `[Space]`, or `[↑]`, collect coins with celebratory chimes and sparkle bursts, bounce on trampolines with boing sounds and shockwave rings, avoid hazards, and reach the finish flag with victory fanfare and confetti.
+5. **SAVE, RETRY & MANAGE CREATIONS:** Save your custom sketches and levels to browser `localStorage` in the **My Creations** gallery. Load any level back into the editor, play saved levels directly, duplicate levels, or rename them.
 
 ---
 
@@ -50,10 +50,12 @@ The application is structured into decoupled, modular layers:
 | **Build Tooling** | [Vite 8](https://vite.dev/) | Sub-second HMR and optimized bundler with code-split Phaser chunk |
 | **Styling & Design System** | [Tailwind CSS v4](https://tailwindcss.com/) | Modern glassmorphism, responsive canvas HUD, dark theme |
 | **2D Game Engine** | [Phaser 4](https://phaser.io/) (Arcade Physics) | 60 FPS platformer physics, segmented platforms, restitution trampolines, coins, hazards |
+| **Procedural Audio** | Web Audio API (`audioService.ts`) | Zero-asset retro synthesizer for jumps, bounces, coins, hazards, fanfare, and clicks |
+| **Visual Particles** | Phaser Procedural Particle Emitters | Footstep dust puffs, landing bursts, trampoline rings, coin sparkles, victory confetti |
+| **Persistence Layer** | `localStorage` + Zod (`creationStorage.ts`) | Local level gallery with schema validation, recovery from bad records, and CRUD |
 | **Backend API** | [Node.js](https://nodejs.org/) + [Express](https://expressjs.com/) | REST API for image receiving, processing, and CORS management |
 | **Schema Validation** | [Zod](https://zod.dev/) | Strict end-to-end runtime validation for scene contracts and env configs |
 | **Image-AI Service** | [`@google/genai`](https://www.npmjs.com/package/@google/genai) | Official Google GenAI SDK powered by `gemini-3.8-flash` |
-| **Local Physics Converter** | `sceneConverter.ts` | Deterministic stroke segmentation and world scaling with fallback safety floors and goals |
 
 ---
 
@@ -90,9 +92,9 @@ DRAW2PLAY/
 │   ├── assets/                        # Static SVG and image assets
 │   ├── components/                    # Modular React components
 │   │   ├── canvas/
-│   │   │   └── InteractiveCanvas.tsx  # HTML5 Canvas with DPR, normalized vectors & blueprints
+│   │   │   └── InteractiveCanvas.tsx  # HTML5 Canvas with DPR, normalized vectors & loadStrokes
 │   │   ├── game/
-│   │   │   └── PhaserGameView.tsx     # Phaser 4 game lifecycle, HUD, Win/Lose overlays & restart
+│   │   │   └── PhaserGameView.tsx     # Phaser 4 game lifecycle, HUD, Win/Lose overlays & touch D-pad
 │   │   ├── modals/                    # Studio Dialogs & Confirmation Modals
 │   │   │   ├── AnalyzePreparationModal.tsx  # Synthesis modal (Gemini Vision vs. Instant Local Physics)
 │   │   │   ├── ClearConfirmModal.tsx        # Destructive clear action confirmation
@@ -100,31 +102,36 @@ DRAW2PLAY/
 │   │   │   └── ExportModal.tsx              # PNG & JSON structured export dialog
 │   │   ├── studio/                    # Studio Components
 │   │   │   ├── BottomStatusBar.tsx    # Live tool, element, dimensions, and drawing status
+│   │   │   ├── MyCreationsModal.tsx   # Persistent level gallery with search, play, duplicate, delete
 │   │   │   ├── ScenePanel.tsx         # Real-time stroke counts, specs & AI configuration status
 │   │   │   ├── SketchToolbar.tsx      # Select, Brush, Eraser, sizes & 5 semantic elements
-│   │   │   └── TopBar.tsx             # Studio wordmark, undo/redo, clear, export, quick play & analyze
+│   │   │   └── TopBar.tsx             # Studio wordmark, undo/redo, clear, export, quick play, creations
 │   ├── game/                          # Phaser 4 Game Engine & Physics
 │   │   ├── config.ts                  # Phaser 4 Arcade Physics configuration factory
 │   │   ├── sceneConverter.ts          # Deterministic sketch-to-game scene geometry converter
 │   │   └── scenes/
-│   │       └── MainScene.ts           # Playable Phaser scene with platforms, hero, coins, trampolines, hazards
+│   │       └── MainScene.ts           # Playable Phaser scene with particles, audio, hero, coins, hazards
 │   ├── services/
-│   │   └── api.ts                     # Frontend API client (health check & level analysis)
+│   │   ├── api.ts                     # Frontend API client (health check & level analysis)
+│   │   ├── audioService.ts            # Procedural Web Audio API sound synthesizer
+│   │   └── creationStorage.ts         # Persistent browser storage with Zod schema validation
 │   ├── types/
+│   │   ├── creation.ts                # Saved creation Zod schema and TypeScript contract
 │   │   ├── game.ts                    # Shared game types & character schemas
 │   │   ├── scene.ts                   # Validated Playable 2D Game Scene contract & Zod schemas
 │   │   └── sketch.ts                  # Typed vector model (NormalizedPoint, SketchStroke, Document)
 │   ├── utils/
 │   │   ├── geometryExtractor.ts       # Geometric bounding boxes, centroids, and contour lengths
 │   │   └── sketchSerializer.ts        # Vector rendering, normalization, PNG/JSON export & deterministic summaries
-│   ├── App.tsx                        # Root React studio & game view coordinator
+│   ├── App.tsx                        # Root React studio & game view coordinator with save toasts
 │   ├── main.tsx                       # React DOM entry point
 │   └── index.css                      # Tailwind CSS v4 entry point & design tokens
 │
 └── test/
     ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config (5 tests)
     ├── sketch.test.ts                 # Vector geometry, undo/redo, normalization, JSON export tests (12 tests)
-    └── scene.test.ts                  # Playable physics scene conversion, segmentation & provenance tests (10 tests)
+    ├── scene.test.ts                  # Playable physics scene conversion, segmentation & provenance tests (10 tests)
+    └── storage.test.ts                # Persistent storage CRUD, audio resilience & schema validation tests (10 tests)
 ```
 
 ---
@@ -153,7 +160,7 @@ In accordance with official hackathon rules and fair play policies:
 # 1. Install all dependencies
 npm install
 
-# 2. Run Complete Test Suite (27 automated tests across 3 suites)
+# 2. Run Complete Test Suite (37 automated tests across 4 suites)
 npm test
 
 # 3. Run Code Linter (Oxlint with 0 warnings)
@@ -172,60 +179,57 @@ npm run dev:server   # Runs Express API on http://localhost:3001
 
 ---
 
-## 🔑 7. Environment Variables & Gemini API Configuration
+## 🔊 7. Procedural Game Audio & Controls
 
-Create a `.env` file in the project root (see [`.env.example`](file:///.env.example)):
+Draw2Play AI uses the browser **Web Audio API** to generate all sound effects synthetically without loading any external MP3 or WAV files:
 
-```ini
-PORT=3001
-NODE_ENV=development
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-3.8-flash
-FRONTEND_URL=http://localhost:5173
-```
+- **Jump (`playJump`):** Dynamic rising frequency sweep (160Hz ➔ 460Hz) with triangle wave.
+- **Trampoline Bounce (`playBounce`):** Springy boing modulation (180Hz ➔ 680Hz ➔ 320Hz) with sine wave.
+- **Coin Collection (`playCoin`):** Bell-like two-tone chime (B5 at 987Hz ➔ E6 at 1318Hz).
+- **Hazard Collision (`playHazard`):** Downward crunchy buzz (220Hz ➔ 55Hz) with lowpass filter sweep.
+- **Victory Fanfare (`playVictory`):** Celebratory major arpeggio (C5 ➔ E5 ➔ G5 ➔ C6).
+- **Button Clicks (`playClick`):** Subtle soft micro-pop for UI controls.
 
-### Security Rules:
-- `GEMINI_API_KEY` is read **exclusively on the backend server** (`server/config.ts`).
-- It is never exposed in client bundles or Vite environment variables (`VITE_*`).
-- `.env` is listed in `.gitignore` and never committed to source control.
-
-### Feature Availability:
-- **With `GEMINI_API_KEY` configured:** Clicking "Analyze Sketch" ➔ "Analyze with Gemini Vision" sends the sketch image to Google Gemini 3.8 Flash, which enriches the level with thematic naming, custom difficulty rating, player physics tuning, and visual feedback (`source: gemini-vision`).
-- **Without `GEMINI_API_KEY`:** 
-  - **Quick Play button:** Instantly launches the level with local vector physics in <5ms (`source: local-vector`).
-  - **Analyze Sketch modal:** Provides an "Instant Local Physics" button to play immediately with local vector conversion, or demonstrates the backend mock fallback path (`source: mock-fallback`).
+### Audio Settings:
+- Click the **Volume** icon in the TopBar or in the Game View HUD to toggle Mute/Unmute.
+- Mute preferences are persisted in browser `localStorage`.
+- Sound is initialized strictly after the first user gesture to comply with browser autoplay policies.
 
 ---
 
-## 🎮 8. How to Draw and Play a Level
+## 💾 8. My Creations Persistent Gallery
 
-1. **Draw Your Level:**
-   - Select **Ground** (green) and draw horizontal or terraced platforms.
-   - Select **Hazard** (red) and draw spikes or danger zones.
-   - Select **Trampoline** (cyan) to draw bounce pads for extra jump height.
-   - Select **Coin** (gold) to place collectible reward tokens.
-   - Select **Goal** (purple) to place the victory finish flag.
-   - *(Optional: Click preset blueprints like "Rolling Hills" or "Spike Canyon" from the Empty Sketch dialog)*.
-2. **Launch the Game:**
-   - **Method A (Instant):** Click the green **"Quick Play"** button in the top bar to play immediately with local physics.
-   - **Method B (AI Synthesis):** Click **"Analyze Sketch"** in the top bar ➔ Choose **"Analyze with Gemini Vision"** or **"Instant Local Physics"** ➔ Click **"Play Level Now!"**.
-3. **Control Your Hero:**
-   - **Move Left / Right:** `[A]` / `[D]` or `[←]` / `[→]`
-   - **Jump:** `[W]`, `[Space]`, or `[↑]`
-   - **Collect Coins:** Walk or jump through coins to increase your score (+10 pts each).
-   - **Bounce:** Land on top of trampolines to trigger a high-velocity upward launch.
-   - **Avoid Hazards:** Touching a hazard triggers a crash state and camera shake. Click "Retry Level" to try again.
-   - **Reach the Goal:** Touch the purple Goal portal to trigger the "Level Complete!" victory overlay.
-   - **Back to Editor:** Click "Back to Editor" to modify or extend your drawing anytime.
+Every custom level you draw can be saved directly in your browser:
+- **Save Level Button:** Click "Save Level" in the studio TopBar, press `Ctrl+S`, or click "Save Creation" on the game victory overlay.
+- **My Creations Modal:** Click "Creations" in the studio TopBar to open the gallery.
+  - **Play:** Launch any saved level directly in Phaser with one click.
+  - **Edit:** Load the saved vector strokes back into the interactive canvas to modify them.
+  - **Rename:** Edit level names inline.
+  - **Duplicate:** Clone a level to experiment with variations without losing the original.
+  - **Delete:** Remove levels with an inline confirmation prompt.
+  - **Search:** Instant filter by level name.
+- **Data Integrity:** All stored records are strictly validated against `SavedCreationSchema` using Zod. Corrupted records are isolated without wiping other creations.
 
 ---
 
-## 🧪 9. Automated Test Suite Results
+## 🎮 9. Responsive Gameplay & Controls
 
-Run `npm test` to execute all 3 test suites (**27/27 automated tests passing**):
+The game is optimized for both desktop and mobile/touch devices:
+- **Desktop Keyboard:**
+  - Move: `[A]` / `[D]` or `[←]` / `[→]`
+  - Jump: `[W]`, `[Space]`, or `[↑]`
+- **Mobile & Touch Controls:**
+  - On-screen touch D-Pad (`◀` / `▶`) and Jump button (`▲ JUMP`) with `touch-action: none` to prevent accidental mobile page scrolling.
+  - Toggle on-screen touch controls anytime via the Gamepad icon in the HUD.
+
+---
+
+## 🧪 10. Automated Test Suite Results
+
+Run `npm test` to execute all 4 test suites (**37/37 automated tests passing**):
 
 ```
-> tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts
+> tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts
 
 🧪 Starting Draw2Play AI Phase 0 Sanity Test Suite...
 ▶ Test 1: CharacterAttributesSchema validates correctly ✓
@@ -262,31 +266,39 @@ Run `npm test` to execute all 3 test suites (**27/27 automated tests passing**):
 ▶ Test 9: Server Gemini Level Analysis Output Schema ✓
 ▶ Test 10: Server Mock Level Analysis Generator ✓
 🎉 ALL 10 PHASE 3 PLAYABLE PHYSICS & SCENE TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 4 Storage, Audio & Polish Test Suite...
+▶ Test 1: Save Creation and validate stored record ✓
+▶ Test 2: Update Existing Creation ✓
+▶ Test 3: Rename Creation ✓
+▶ Test 4: Duplicate Creation ✓
+▶ Test 5: Delete Creation ✓
+▶ Test 6: Export Creation as JSON ✓
+▶ Test 7: Schema Validation Rejection on Corrupted Record ✓
+▶ Test 8: Procedural Audio Service Resilience ✓
+▶ Test 9: Saved Playable Scene Ready for Immediate Launch ✓
+▶ Test 10: Clean Storage Reset ✓
+🎉 ALL 10 PHASE 4 STORAGE & POLISH TESTS PASSED SUCCESSFULLY!
 ```
 
 ---
 
-## 🛑 10. Phase Status & Limitations
+## 🛑 11. Phase Status & Limitations
 
 * **Phase 0 Status:** **COMPLETE & VERIFIED** (Scaffolding, schemas, health route).
 * **Phase 1 Status:** **COMPLETE & VERIFIED** (Studio interface, layouts, navigation).
 * **Phase 2 Status:** **COMPLETE & VERIFIED** (Interactive canvas, 5 element types, vector normalization, history, presets).
-* **Phase 3 Status:** **COMPLETE & VERIFIED**
-  * Playable 2D platformer engine built with Phaser 4 Arcade Physics.
-  * Ground stroke segmentation: freehand strokes are broken into connected platform slabs rather than a single giant bounding box.
-  * Hazard collision triggering screen shake and defeat overlay.
-  * Elastic trampoline pads with dynamic restitution boost when landed on from above.
-  * Overlap-based collectible coins updating live score and coins collected HUD.
-  * Goal detection with victory overlay and score recap.
-  * Seamless switching between Studio Editor and Playable Game View.
-  * Provenance-tracked Gemini Vision backend route (`gemini-3.8-flash`) via official `@google/genai` SDK.
-  * Zero-latency Local Vector physics conversion ensuring 100% playable game without an API key.
-  * 27 automated unit tests passing, Oxlint clean (0 warnings), and production build verified with code-split Phaser bundle.
+* **Phase 3 Status:** **COMPLETE & VERIFIED** (Playable physics engine, stroke segmentation, Gemini Vision integration, local vector fallback).
+* **Phase 4 Status:** **COMPLETE & VERIFIED**
+  * Procedural Web Audio API sound engine (jumps, bounces, coins, hazards, fanfare, clicks) with mute/volume controls.
+  * Phaser particle systems (running dust, landing puffs, bounce sparkles, coin chimes, victory confetti, hazard flashes).
+  * Persistent My Creations gallery with browser `localStorage`, Zod schema validation, duplicate, rename, delete, search, and instant play.
+  * Responsive mobile touch controls with virtual D-Pad and Jump button.
+  * 37 automated unit tests passing, Oxlint clean (0 warnings), and production build verified with code-split Phaser bundle.
 
 ### Known Limitations:
-- Real-time Gemini Vision requires an active `GEMINI_API_KEY` with Google AI Studio quota. When absent, the application gracefully provides the local vector and mock fallback paths with explicit notices.
-- Curved strokes with high point counts are segmented into linear platform segments (maximum 40 physics slabs per stroke to preserve 60 FPS performance).
-- Player jump is restricted to grounded state or bounce surfaces (no infinite double jumps).
+- AudioContext requires an initial user interaction (click or tap) to unlock audio playback per standard browser security policies.
+- Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels are stored as compact vector coordinates to maximize capacity.
 
-### Recommended Next Step (Phase 4):
-- **User Playtesting, Audio & Polish:** Add procedural Web Audio effects (jump, bounce, coin chime, defeat buzzer, victory fanfare), particle trails on hero movement, and level blueprint saving/loading to browser LocalStorage.
+### Recommended Next Step (Phase 5):
+- **Natural Language Level Remixing & AI Customization:** Allow players to type natural language prompts (e.g. "make platforms icy", "add high bounce trampolines", "turn gravity to low moon gravity") and use Gemini to remix active levels dynamically.

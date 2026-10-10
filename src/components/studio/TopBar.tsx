@@ -8,18 +8,28 @@ import {
   HelpCircle,
   Cpu,
   Gamepad2,
+  BookmarkPlus,
+  Layers,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
+import { audioService } from '../../services/audioService.js';
 
 interface TopBarProps {
   canUndo: boolean;
   canRedo: boolean;
   strokeCount: number;
+  savedCreationsCount?: number;
+  isMuted?: boolean;
   onUndo: () => void;
   onRedo: () => void;
   onClearClick: () => void;
   onExportClick: () => void;
   onAnalyzeClick: () => void;
   onQuickPlayClick?: () => void;
+  onOpenCreationsClick?: () => void;
+  onSaveClick?: () => void;
+  onToggleMute?: () => void;
   onHelpClick: () => void;
 }
 
@@ -27,16 +37,21 @@ export const TopBar: React.FC<TopBarProps> = ({
   canUndo,
   canRedo,
   strokeCount,
+  savedCreationsCount = 0,
+  isMuted = false,
   onUndo,
   onRedo,
   onClearClick,
   onExportClick,
   onAnalyzeClick,
   onQuickPlayClick,
+  onOpenCreationsClick,
+  onSaveClick,
+  onToggleMute,
   onHelpClick,
 }) => {
   return (
-    <header className="w-full bg-[#070a13]/95 backdrop-blur-xl border-b border-slate-800/90 sticky top-0 z-40 px-4 sm:px-6 py-2.5">
+    <header className="w-full bg-[#070a13]/95 backdrop-blur-xl border-b border-slate-800/90 sticky top-0 z-40 px-3 sm:px-6 py-2.5">
       <div className="max-w-[1700px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
         {/* Left: Wordmark & Studio Status */}
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
@@ -90,15 +105,70 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* Center / Right: Action Controls */}
-        <div className="flex items-center flex-wrap gap-2 w-full md:w-auto justify-end">
+        <div className="flex items-center flex-wrap gap-1.5 sm:gap-2 w-full md:w-auto justify-end">
+          {/* Audio Mute/Unmute Toggle */}
+          {onToggleMute && (
+            <button
+              type="button"
+              onClick={onToggleMute}
+              title={isMuted ? 'Unmute audio' : 'Mute audio'}
+              aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
+              className="p-2 rounded-xl text-xs font-semibold bg-[#0e1424] hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+            </button>
+          )}
+
+          {/* My Creations Gallery Modal Button */}
+          {onOpenCreationsClick && (
+            <button
+              type="button"
+              onClick={() => {
+                audioService.playClick();
+                onOpenCreationsClick();
+              }}
+              title="Open My Saved Creations Gallery"
+              aria-label="Open Saved Creations"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-purple-950/40 text-slate-300 hover:text-purple-300 border border-slate-800 hover:border-purple-800/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none"
+            >
+              <Layers className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Creations</span>
+              {savedCreationsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-mono">
+                  {savedCreationsCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Save Current Sketch Button */}
+          {strokeCount > 0 && onSaveClick && (
+            <button
+              type="button"
+              onClick={() => {
+                audioService.playClick();
+                onSaveClick();
+              }}
+              title="Save current drawing to My Creations"
+              aria-label="Save Current Level"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-cyan-950/40 text-slate-300 hover:text-cyan-300 border border-slate-800 hover:border-cyan-800/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+            >
+              <BookmarkPlus className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Save Level</span>
+            </button>
+          )}
+
           {/* Undo Button */}
           <button
             type="button"
-            onClick={onUndo}
+            onClick={() => {
+              audioService.playClick();
+              onUndo();
+            }}
             disabled={!canUndo}
             title="Undo last stroke (Ctrl+Z)"
             aria-label="Undo last stroke"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
           >
             <Undo2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Undo</span>
@@ -107,11 +177,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Redo Button */}
           <button
             type="button"
-            onClick={onRedo}
+            onClick={() => {
+              audioService.playClick();
+              onRedo();
+            }}
             disabled={!canRedo}
             title="Redo stroke (Ctrl+Y)"
             aria-label="Redo stroke"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
           >
             <Redo2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Redo</span>
@@ -120,11 +193,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Clear Canvas Action */}
           <button
             type="button"
-            onClick={onClearClick}
+            onClick={() => {
+              audioService.playClick();
+              onClearClick();
+            }}
             disabled={strokeCount === 0}
             title="Clear entire canvas"
             aria-label="Clear Canvas"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 hover:border-rose-800/40 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 hover:border-rose-800/40 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-400" />
             <span className="hidden sm:inline">Clear</span>
@@ -133,20 +209,26 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Export Action */}
           <button
             type="button"
-            onClick={onExportClick}
+            onClick={() => {
+              audioService.playClick();
+              onExportClick();
+            }}
             disabled={strokeCount === 0}
             title="Export sketch as PNG or structured JSON"
             aria-label="Export Sketch"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-200 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-[#0e1424] hover:bg-slate-800 text-slate-200 disabled:opacity-35 disabled:cursor-not-allowed border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
           >
             <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Export</span>
+            <span className="hidden sm:inline">Export</span>
           </button>
 
           {/* Help Button */}
           <button
             type="button"
-            onClick={onHelpClick}
+            onClick={() => {
+              audioService.playClick();
+              onHelpClick();
+            }}
             title="Studio Guide & Shortcuts"
             aria-label="Open Studio Guide"
             className="p-2 rounded-xl text-xs font-semibold bg-[#0e1424] hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
@@ -154,13 +236,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             <HelpCircle className="w-4 h-4" />
           </button>
 
-          {/* Optional Quick Play Button (Instant Local Physics) */}
+          {/* Quick Play Button (Instant Local Physics) */}
           {strokeCount > 0 && onQuickPlayClick && (
             <button
               type="button"
-              onClick={onQuickPlayClick}
+              onClick={() => {
+                audioService.playClick();
+                onQuickPlayClick();
+              }}
               title="Launch level immediately with local vector physics"
-              className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-500/40 shadow-lg shadow-emerald-950/40 transition-all cursor-pointer active:scale-95"
+              className="px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-500/40 shadow-lg shadow-emerald-950/40 transition-all cursor-pointer active:scale-95"
             >
               <Gamepad2 className="w-3.5 h-3.5 text-emerald-200" />
               <span>Quick Play</span>
@@ -170,8 +255,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Primary Analyze Sketch Button */}
           <button
             type="button"
-            onClick={onAnalyzeClick}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 border shadow-lg transition-all focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none ${
+            onClick={() => {
+              audioService.playClick();
+              onAnalyzeClick();
+            }}
+            className={`px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 border shadow-lg transition-all focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none ${
               strokeCount === 0
                 ? 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-700 cursor-pointer'
                 : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white border-purple-500/40 shadow-purple-950/40 cursor-pointer active:scale-95'
@@ -185,3 +273,4 @@ export const TopBar: React.FC<TopBarProps> = ({
     </header>
   );
 };
+export default TopBar;

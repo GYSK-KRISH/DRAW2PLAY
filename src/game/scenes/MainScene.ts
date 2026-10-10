@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { PlayableGameScene, GamePlayState } from '../../types/scene.js';
+import { audioService } from '../../services/audioService.js';
 
 export interface MainSceneInitData {
   sceneData?: PlayableGameScene;
@@ -22,6 +23,13 @@ export class MainScene extends Phaser.Scene {
   private coins!: Phaser.Physics.Arcade.Group;
   private goalObject!: Phaser.Types.Physics.Arcade.ImageWithStaticBody;
 
+  // Particle Emitters
+  private dustEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private sparkleEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private bounceEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private confettiEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private hazardEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+
   private sceneData?: PlayableGameScene;
   private onGameStateChange?: (state: GamePlayState, score: number, coinsCollected: number) => void;
 
@@ -29,6 +37,13 @@ export class MainScene extends Phaser.Scene {
   private coinsCollected = 0;
   private totalCoins = 0;
   private gameState: GamePlayState = 'ready';
+
+  // Movement & physics states for polish
+  private wasGrounded = false;
+  private lastDustTime = 0;
+
+  // Virtual mobile touch controls
+  private virtualInput = { left: false, right: false, jump: false };
 
   constructor() {
     super({ key: 'MainScene' });
@@ -41,10 +56,22 @@ export class MainScene extends Phaser.Scene {
     this.coinsCollected = 0;
     this.totalCoins = this.sceneData?.coins.length ?? 0;
     this.gameState = 'ready';
+    this.wasGrounded = false;
+    this.lastDustTime = 0;
+    this.virtualInput = { left: false, right: false, jump: false };
   }
 
   getTotalCoins(): number {
     return this.totalCoins;
+  }
+
+  /**
+   * Set virtual touch inputs from mobile controls
+   */
+  public setVirtualInput(input: { left?: boolean; right?: boolean; jump?: boolean }) {
+    if (input.left !== undefined) this.virtualInput.left = input.left;
+    if (input.right !== undefined) this.virtualInput.right = input.right;
+    if (input.jump !== undefined) this.virtualInput.jump = input.jump;
   }
 
   preload() {
@@ -120,6 +147,33 @@ export class MainScene extends Phaser.Scene {
       g.generateTexture('goal-flag-texture', 36, 48);
       g.destroy();
     }
+
+    // 6. Procedural Particle Textures (Dust, Sparkle, Confetti)
+    if (!this.textures.exists('particle-dust')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x94a3b8, 1);
+      g.fillCircle(3, 3, 3);
+      g.generateTexture('particle-dust', 6, 6);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-sparkle')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xfde047, 1);
+      g.fillCircle(4, 4, 3);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(4, 4, 1.5);
+      g.generateTexture('particle-sparkle', 8, 8);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('particle-confetti')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x38bdf8, 1);
+      g.fillRect(0, 0, 6, 6);
+      g.generateTexture('particle-confetti', 6, 6);
+      g.destroy();
+    }
   }
 
   create() {
@@ -150,25 +204,35 @@ export class MainScene extends Phaser.Scene {
       { id: 'floor', x: 0, y: height - 32, width, height: 32 },
     ];
 
-    for (const p of platData) {
-      // Dynamic texture key per dimension to prevent distortion
-      const texKey = `plat-tex-${p.width}x${p.height}`;
-      if (!this.textures.exists(texKey)) {
+    for (const plat of platData) {
+      // Create individual procedural graphics for each platform to fit its exact dimensions
+      const platTextureKey = `plat-tex-${plat.id}`;
+      if (!this.textures.exists(platTextureKey)) {
         const pg = this.make.graphics({ x: 0, y: 0 });
-        pg.fillStyle(0x10b981, 1); // Emerald Ground
-        pg.fillRoundedRect(0, 0, p.width, p.height, 4);
-        pg.lineStyle(2, 0x059669, 1);
-        pg.strokeRoundedRect(0, 0, p.width, p.height, 4);
-        pg.generateTexture(texKey, p.width, p.height);
+        const fillCol = 0x10b981;
+        const lineCol = 0x059669;
+
+        pg.fillStyle(fillCol, 1);
+        pg.fillRoundedRect(0, 0, plat.width, plat.height, 4);
+
+        pg.lineStyle(2, lineCol, 1);
+        pg.strokeRoundedRect(0, 0, plat.width, plat.height, 4);
+
+        // Grass/top highlight line
+        pg.fillStyle(0x34d399, 1);
+        pg.fillRect(2, 1, Math.max(1, plat.width - 4), 3);
+
+        pg.generateTexture(platTextureKey, plat.width, plat.height);
         pg.destroy();
       }
 
-      const platSprite = this.platforms.create(
-        p.x + p.width / 2,
-        p.y + p.height / 2,
-        texKey
+      // Add as static Arcade sprite centered on the platform
+      const pSprite = this.platforms.create(
+        plat.x + plat.width / 2,
+        plat.y + plat.height / 2,
+        platTextureKey
       ) as Phaser.Physics.Arcade.Sprite;
-      platSprite.refreshBody();
+      pSprite.refreshBody();
     }
 
     // -----------------------------------------------------------------------
@@ -177,19 +241,18 @@ export class MainScene extends Phaser.Scene {
     this.hazards = this.physics.add.staticGroup();
     const hazardData = this.sceneData?.hazards ?? [];
 
-    for (const h of hazardData) {
-      // Create hazard sprite centered at bounding box
+    for (const haz of hazardData) {
       const hSprite = this.hazards.create(
-        h.x + h.width / 2,
-        h.y + h.height / 2,
+        haz.x + haz.width / 2,
+        haz.y + haz.height / 2,
         'hazard-spike-texture'
       ) as Phaser.Physics.Arcade.Sprite;
-      hSprite.setDisplaySize(h.width, h.height);
+      hSprite.setDisplaySize(haz.width, haz.height);
       hSprite.refreshBody();
     }
 
     // -----------------------------------------------------------------------
-    // C. TRAMPOLINES (From Trampoline strokes)
+    // C. BOUNCY TRAMPOLINES (From Trampoline strokes)
     // -----------------------------------------------------------------------
     this.trampolines = this.physics.add.staticGroup();
     const trampData = this.sceneData?.trampolines ?? [];
@@ -212,14 +275,15 @@ export class MainScene extends Phaser.Scene {
     const coinData = this.sceneData?.coins ?? [];
 
     for (const c of coinData) {
-      const coinSprite = this.coins.create(c.x, c.y, 'coin-sprite') as Phaser.Physics.Arcade.Sprite;
-      coinSprite.setBounceY(0.2);
-      coinSprite.setCollideWorldBounds(true);
-      coinSprite.setData('value', c.value || 10);
+      const cSprite = this.coins.create(c.x, c.y, 'coin-sprite') as Phaser.Physics.Arcade.Sprite;
+      cSprite.setDisplaySize(c.size || 24, c.size || 24);
+      cSprite.setData('value', c.value || 10);
+      cSprite.setCollideWorldBounds(true);
+      cSprite.setBounce(0.3);
 
-      // Gentle floating animation
+      // Subtle float animation
       this.tweens.add({
-        targets: coinSprite,
+        targets: cSprite,
         y: c.y - 6,
         duration: 800 + Math.random() * 400,
         yoyo: true,
@@ -229,7 +293,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     // -----------------------------------------------------------------------
-    // E. VICTORY GOAL PORTAL / FLAG (From Goal stroke)
+    // E. VICTORY GOAL OBJECT (From Goal stroke)
     // -----------------------------------------------------------------------
     const goalData = this.sceneData?.goal ?? {
       id: 'default-goal',
@@ -257,7 +321,52 @@ export class MainScene extends Phaser.Scene {
     });
 
     // -----------------------------------------------------------------------
-    // F. PLAYER SPAWN & HERO CONTROLS
+    // F. PARTICLE EMITTERS SETUP
+    // -----------------------------------------------------------------------
+    this.dustEmitter = this.add.particles(0, 0, 'particle-dust', {
+      speed: { min: 20, max: 60 },
+      scale: { start: 1, end: 0 },
+      alpha: { start: 0.7, end: 0 },
+      lifespan: 250,
+      emitting: false,
+    });
+
+    this.sparkleEmitter = this.add.particles(0, 0, 'particle-sparkle', {
+      speed: { min: 40, max: 130 },
+      scale: { start: 1.3, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 450,
+      emitting: false,
+    });
+
+    this.bounceEmitter = this.add.particles(0, 0, 'particle-sparkle', {
+      speed: { min: 60, max: 160 },
+      angle: { min: 220, max: 320 },
+      scale: { start: 1.5, end: 0.2 },
+      tint: 0x06b6d4,
+      lifespan: 350,
+      emitting: false,
+    });
+
+    this.confettiEmitter = this.add.particles(0, 0, 'particle-confetti', {
+      speed: { min: 80, max: 220 },
+      angle: { min: 200, max: 340 },
+      gravityY: 200,
+      scale: { start: 1.4, end: 0.3 },
+      lifespan: 800,
+      emitting: false,
+    });
+
+    this.hazardEmitter = this.add.particles(0, 0, 'particle-dust', {
+      speed: { min: 50, max: 120 },
+      scale: { start: 1.8, end: 0 },
+      tint: 0xef4444,
+      lifespan: 350,
+      emitting: false,
+    });
+
+    // -----------------------------------------------------------------------
+    // G. PLAYER SPAWN & HERO CONTROLS
     // -----------------------------------------------------------------------
     const spawnX = this.sceneData?.player.spawnX ?? 80;
     const spawnY = this.sceneData?.player.spawnY ?? height - 100;
@@ -272,7 +381,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setGravityY(grav);
 
     // -----------------------------------------------------------------------
-    // G. PHYSICS INTERACTIONS & COLLISIONS
+    // H. PHYSICS INTERACTIONS & COLLISIONS
     // -----------------------------------------------------------------------
     // 1. Player & Platforms
     this.physics.add.collider(this.player, this.platforms);
@@ -291,10 +400,17 @@ export class MainScene extends Phaser.Scene {
           const strength = tramp.getData('bounceStrength') || 620;
           this.player.setVelocityY(-strength);
 
+          // Audio response
+          audioService.playBounce();
+
+          // Particle burst
+          this.bounceEmitter?.explode(10, tramp.x, tramp.y);
+
           // Spring squash & stretch effect
           this.tweens.add({
             targets: tramp,
-            scaleY: 0.6,
+            scaleY: 0.55,
+            scaleX: 1.15,
             duration: 80,
             yoyo: true,
           });
@@ -306,18 +422,24 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.coins, (_playerObj, coinObj) => {
       const coin = coinObj as Phaser.Physics.Arcade.Sprite;
       const coinVal = coin.getData('value') || 10;
+      const coinX = coin.x;
+      const coinY = coin.y;
       coin.disableBody(true, true);
 
       this.score += coinVal;
       this.coinsCollected++;
+
+      // Audio & Particle response
+      audioService.playCoin();
+      this.sparkleEmitter?.explode(12, coinX, coinY);
 
       this.triggerStateUpdate('playing');
 
       // Player pulse
       this.tweens.add({
         targets: this.player,
-        scaleX: 1.2,
-        scaleY: 1.2,
+        scaleX: 1.25,
+        scaleY: 1.25,
         duration: 90,
         yoyo: true,
       });
@@ -328,9 +450,13 @@ export class MainScene extends Phaser.Scene {
       if (this.gameState === 'lost') return;
       this.gameState = 'lost';
 
+      // Audio & Particle response
+      audioService.playHazard();
+      this.hazardEmitter?.explode(16, this.player.x, this.player.y);
+
       this.player.setTint(0xff0000);
-      this.player.setVelocity(0, -200);
-      this.cameras.main.shake(200, 0.02);
+      this.player.setVelocity(0, -220);
+      this.cameras.main.shake(220, 0.02);
 
       this.triggerStateUpdate('lost');
     });
@@ -340,15 +466,19 @@ export class MainScene extends Phaser.Scene {
       if (this.gameState === 'won' || this.gameState === 'lost') return;
       this.gameState = 'won';
 
+      // Audio & Confetti response
+      audioService.playVictory();
+      this.confettiEmitter?.explode(32, this.goalObject.x, this.goalObject.y - 10);
+
       this.player.setVelocity(0, 0);
       this.player.setTint(0xfacc15);
 
-      this.cameras.main.flash(300, 168, 85, 247);
+      this.cameras.main.flash(350, 168, 85, 247);
       this.triggerStateUpdate('won');
     });
 
     // -----------------------------------------------------------------------
-    // H. KEYBOARD INPUT CONTROLS
+    // I. KEYBOARD INPUT CONTROLS
     // -----------------------------------------------------------------------
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -364,31 +494,54 @@ export class MainScene extends Phaser.Scene {
     this.triggerStateUpdate('playing');
   }
 
-  update() {
-    if (!this.player || !this.cursors || this.gameState === 'won' || this.gameState === 'lost') {
+  update(time: number) {
+    if (!this.player || this.gameState === 'won' || this.gameState === 'lost') {
       return;
     }
 
     const speed = this.sceneData?.player.speed ?? 220;
     const jumpPower = this.sceneData?.player.jumpPower ?? 400;
 
-    const left = this.cursors.left.isDown || this.wasdKeys?.A.isDown;
-    const right = this.cursors.right.isDown || this.wasdKeys?.D.isDown;
-    const jump = this.cursors.up.isDown || this.cursors.space.isDown || this.wasdKeys?.W.isDown;
+    const left = this.cursors?.left?.isDown || this.wasdKeys?.A?.isDown || this.virtualInput.left;
+    const right = this.cursors?.right?.isDown || this.wasdKeys?.D?.isDown || this.virtualInput.right;
+    const jump = this.cursors?.up?.isDown || this.cursors?.space?.isDown || this.wasdKeys?.W?.isDown || this.virtualInput.jump;
 
+    const isGrounded = this.player.body.touching.down;
+
+    // Landing Dust effect
+    if (!this.wasGrounded && isGrounded) {
+      this.dustEmitter?.explode(4, this.player.x, this.player.y + 16);
+    }
+    this.wasGrounded = isGrounded;
+
+    // Horizontal Movement
     if (left) {
       this.player.setVelocityX(-speed);
       this.player.setFlipX(true);
+
+      // Running dust puffs
+      if (isGrounded && time - this.lastDustTime > 140) {
+        this.dustEmitter?.explode(2, this.player.x + 8, this.player.y + 14);
+        this.lastDustTime = time;
+      }
     } else if (right) {
       this.player.setVelocityX(speed);
       this.player.setFlipX(false);
+
+      // Running dust puffs
+      if (isGrounded && time - this.lastDustTime > 140) {
+        this.dustEmitter?.explode(2, this.player.x - 8, this.player.y + 14);
+        this.lastDustTime = time;
+      }
     } else {
       this.player.setVelocityX(0);
     }
 
     // Jump only when on ground (no infinite mid-air jumps)
-    if (jump && this.player.body.touching.down) {
+    if (jump && isGrounded) {
       this.player.setVelocityY(-jumpPower);
+      audioService.playJump();
+      this.dustEmitter?.explode(3, this.player.x, this.player.y + 16);
     }
   }
 
