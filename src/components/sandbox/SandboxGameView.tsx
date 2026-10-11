@@ -121,6 +121,79 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     };
   }, [initGame]);
 
+  // MCP Session Bridge
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+    const currentSessionId = sessionIdRef.current;
+
+    const connectSession = async () => {
+      try {
+        await fetch('/api/sandbox/session/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: currentSessionId,
+            world: sceneRef.current?.worldData || generateDefaultSandboxWorld(),
+            inventory,
+            playerPosition,
+          }),
+        });
+      } catch {
+        // Backend API offline or in testing, gracefully silent
+      }
+    };
+    connectSession();
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/sandbox/session/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: currentSessionId,
+            inventory,
+            playerPosition,
+            world: sceneRef.current?.worldData,
+          }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as {
+            pendingActions?: Array<{
+              type: 'craft' | 'mine' | 'place';
+              data?: Record<string, any>;
+            }>;
+          };
+          if (data.pendingActions && Array.isArray(data.pendingActions) && data.pendingActions.length > 0) {
+            for (const act of data.pendingActions) {
+              if (act.type === 'craft' && act.data?.inventory) {
+                setInventory(act.data.inventory);
+                if (sceneRef.current) sceneRef.current.setInventory(act.data.inventory);
+                triggerFeedback(`🤖 MCP AI: Crafted ${act.data.craftedCount}x ${act.data.outputDisplayName || act.data.outputItem}`);
+              } else if (act.type === 'mine' && act.data) {
+                if (sceneRef.current) {
+                  sceneRef.current.executeRemoteMine(act.data.col, act.data.row);
+                }
+                triggerFeedback(`🤖 MCP AI: Mined ${act.data.minedDisplayName || act.data.minedTile} at (${act.data.col}, ${act.data.row})`);
+              } else if (act.type === 'place' && act.data) {
+                if (sceneRef.current) {
+                  sceneRef.current.executeRemotePlace(act.data.col, act.data.row, act.data.placedBlock);
+                }
+                triggerFeedback(`🤖 MCP AI: Placed ${act.data.placedDisplayName || act.data.placedBlock} at (${act.data.col}, ${act.data.row})`);
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore fetch errors if backend is not running
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [inventory, playerPosition, triggerFeedback]);
+
   // Audio Toggle
   const handleToggleMute = () => {
     const next = audioService.toggleMute();

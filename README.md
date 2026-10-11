@@ -522,5 +522,115 @@ Available recipes in `CRAFTING_RECIPES`:
 - **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint`)
 - **Build:** Clean TypeScript build & Vite bundle (`npm run build`)
 
+---
+
+## 16. Model Context Protocol (MCP) Server Integration (Phase 9)
+
+Draw2Play AI includes a secure, official **Model Context Protocol (MCP)** server built with `@modelcontextprotocol/sdk` (v1.32.1). This integration allows compatible external AI clients (Claude Desktop, Cursor, Antigravity, OpenHands, etc.) to inspect live sandbox game state, query recipe catalogues, and execute validated, bounded game mutations.
+
+### Architecture & Session Bridge
+
+An external MCP server running in a local Node.js process cannot directly access a browser's in-memory Phaser WebGL scene. Draw2Play solves this using an authoritative **Session Bridge** pattern:
+
+```
+┌──────────────────────────────────────────────┐
+│  Compatible AI Client (Claude / Antigravity)  │
+└──────────────────────┬───────────────────────┘
+                       │ Stdio JSON-RPC
+                       ▼
+┌──────────────────────────────────────────────┐
+│  Draw2Play MCP Server (server/mcp/index.ts)  │
+│  - Strict Zod validation                     │
+│  - Idempotency caching                       │
+│  - Reach & collision guards                  │
+└──────────────────────┬───────────────────────┘
+                       │ In-Memory Shared Service
+                       ▼
+┌──────────────────────────────────────────────┐
+│         sandboxSessionManager                │
+└──────────────────────▲───────────────────────┘
+                       │ HTTP Heartbeat & Sync (/api/sandbox/session)
+                       ▼
+┌──────────────────────────────────────────────┐
+│  React Browser Client (SandboxGameView.tsx)  │
+│  Phaser 4 Sandbox Scene (SandboxScene.ts)    │
+└──────────────────────────────────────────────┘
+```
+
+1. **Honest Session Reporting:** When the browser sandbox is closed, read-only tools report catalogue data and `hasActiveSession: false`. Mutation tools cleanly reject with an actionable error rather than fabricating a disconnected phantom world.
+2. **Authoritative Bridge:** When a player opens Sandbox Mode in Draw2Play, `SandboxGameView.tsx` registers a live session via `/api/sandbox/session/connect` and sends regular heartbeats with player coordinates, inventory, and tile updates via `/api/sandbox/session/sync`.
+3. **Queue & Playback:** Remote mining and placement actions executed by the AI are queued in the session manager and dispatched to the active Phaser scene (`executeRemoteMine`, `executeRemotePlace`) during sync heartbeats.
+
+---
+
+### Registered MCP Tools
+
+| Tool | Type | Description | Key Parameters |
+| :--- | :--- | :--- | :--- |
+| **`get_sandbox_status`** | Read-Only | Returns dimensions, player coordinates, inventory counts, and hotbar state. | `sessionId?: string` |
+| **`list_sandbox_items`** | Read-Only | Returns the typed 13-item catalogue with stack sizes, categories, and placeable flags. | `category?: 'all' \| 'block' \| 'material' \| 'crafted'` |
+| **`list_crafting_recipes`** | Read-Only | Lists supported recipes, required inputs, outputs, and whether each recipe is craftable right now. | `category?: 'all' \| 'basic' \| 'building' \| 'utility'` |
+| **`check_crafting_recipe`** | Read-Only | Validates recipe requirements, inventory stock, missing ingredients, and stack bounds without mutating state. | `recipeId: string`, `batches?: number` (1–100) |
+| **`craft_item`** | Mutating | Atomically deducts ingredients and grants output items via the authoritative recipe engine. | `recipeId: string`, `batches?: number`, `idempotencyKey?: string` |
+| **`mine_block`** | Mutating | Mines an adjacent solid tile into air, collecting the block into player inventory. Enforces reach (<250px). | `col: number` (0–63), `row: number` (0–35), `idempotencyKey?: string` |
+| **`place_block`** | Mutating | Places an owned placeable block onto an air tile. Enforces inventory count, reach, and player collision. | `col: number`, `row: number`, `blockType: PlaceableBlockType`, `idempotencyKey?: string` |
+| **`get_save_status`** | Read-Only | Reports save schema version (`2.0`), persistence driver (`localStorage`), and validation state without exposing local filesystem paths. | `sessionId?: string` |
+
+---
+
+### Security, Validation & Defense-in-Depth
+
+- **Strict Zod Schemas:** Every tool input is validated before execution. Out-of-bounds coordinates (`col > 63`, `row > 35`), negative coordinates, non-integer numbers, and oversized batch counts are rejected at the protocol layer.
+- **Reach Limits:** Mining and placement operations enforce player reach (< 250px / ~7.8 tiles) from the player's active position. Remote attempts to mine blocks across the map are rejected.
+- **Collision Checking:** `place_block` checks the player's 22×32 bounding box and refuses to place blocks inside the player's body.
+- **Non-Placeable Filtering:** Items with `isPlaceable: false` (such as `stick`) are rejected by schema and cannot be placed as world tiles.
+- **Idempotency Protection:** All mutating operations accept an optional `idempotencyKey`. Retried requests return the cached result without double-deducting materials or awarding duplicate rewards.
+- **Zero Filesystem / Shell Access:** The MCP server strictly forbids process execution, arbitrary fetch, or local file access. Persistence inspects isolated browser localStorage contracts only.
+
+---
+
+### Starting the MCP Server
+
+Start the Draw2Play MCP server directly with npm:
+
+```bash
+npm run mcp
+```
+
+This starts `tsx server/mcp/index.ts` using the official MCP **Stdio transport**. All diagnostic logging is routed to `stderr`, keeping `stdout` reserved for JSON-RPC messages.
+
+---
+
+### Client Configuration (e.g., Claude Desktop)
+
+To connect Draw2Play AI to Claude Desktop, add the following configuration to your `claude_desktop_config.json` (on Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "draw2play": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "tsx",
+        "server/mcp/index.ts"
+      ],
+      "cwd": "E:\\PROJECT\\DRAW2PLAY"
+    }
+  }
+}
+```
+
+---
+
+### Verification Results
+
+- **Automated Tests:** **137 / 137 tests passing** across 11 test suites (`npm test`)
+- **MCP Integration Suite:** 17 / 17 tests passing (`test/mcp.test.ts`), covering discovery, read-only tools, session lifecycle, atomic crafting, reach bounds, collision avoidance, idempotency caching, and schema rejections.
+- **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint`)
+- **Build:** Clean TypeScript build & Vite bundle (`npm run build`)
+
+
 
 

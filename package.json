@@ -9,12 +9,14 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "server": "tsx server/index.ts",
-    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts",
+    "mcp": "tsx server/mcp/index.ts",
+    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^2.28.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tailwindcss/vite": "^4.3.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",

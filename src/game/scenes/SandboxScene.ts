@@ -3,6 +3,7 @@ import type {
   SandboxTileType,
   SandboxWorldData,
   SandboxInventory,
+  PlaceableBlockType,
 } from '../../types/sandbox.js';
 import {
   TILE_DEFINITIONS,
@@ -100,6 +101,30 @@ export class SandboxScene extends Phaser.Scene {
   public selectHotbarSlot(slot: number) {
     this.inventory = setSelectedSlot(this.inventory, slot);
     this.onInventoryChange?.(this.inventory);
+  }
+
+  public setInventory(inv: SandboxInventory) {
+    this.inventory = inv;
+  }
+
+  public executeRemoteMine(col: number, row: number) {
+    const tileSize = this.worldData.tileSize;
+    const tileCenterX = col * tileSize + tileSize / 2;
+    const tileCenterY = row * tileSize + tileSize / 2;
+    this.performMine(col, row, tileCenterX, tileCenterY);
+  }
+
+  public executeRemotePlace(col: number, row: number, blockType: PlaceableBlockType) {
+    if (!isItemPlaceable(blockType)) return;
+    const key = `${col},${row}`;
+    const existing = this.tileSpriteMap.get(key);
+    if (existing) {
+      existing.destroy();
+      this.tileSpriteMap.delete(key);
+    }
+    this.worldData.tiles[row][col] = blockType;
+    this.createTileGameObject(col, row, blockType);
+    audioService.playPlace();
   }
 
   preload() {
@@ -673,12 +698,5 @@ export class SandboxScene extends Phaser.Scene {
       g.generateTexture('hero-sprite', 36, 36);
       g.destroy();
     }
-  }
-
-  /**
-   * Updates the scene's internal inventory copy when items are crafted or synced from React
-   */
-  public setInventory(newInventory: SandboxInventory): void {
-    this.inventory = { ...newInventory };
   }
 }

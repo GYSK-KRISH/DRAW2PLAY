@@ -4,6 +4,7 @@ import { serverConfig } from './config.js';
 import { healthRouter } from './routes/health.routes.js';
 import { aiRouter } from './routes/ai.routes.js';
 import { referenceRouter } from './routes/reference.routes.js';
+import { sandboxSessionRouter } from './routes/sandboxSession.routes.js';
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 app.use('/api/health', healthRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/reference', referenceRouter);
+app.use('/api/sandbox/session', sandboxSessionRouter);
 
 // Root route
 app.get('/', (_req: Request, res: Response) => {
