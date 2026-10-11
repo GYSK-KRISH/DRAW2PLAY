@@ -6,6 +6,9 @@ import type {
   TrampolineElement,
   CoinElement,
   GoalElement,
+  EnemyElement,
+  SwitchElement,
+  DoorElement,
   SceneProvenanceSource,
 } from '../types/scene.js';
 import { PlayableGameSceneSchema } from '../types/scene.js';
@@ -287,120 +290,216 @@ export function convertSketchToPlayableScene(
   return PlayableGameSceneSchema.parse(rawScene);
 }
 
+import type { GameDesignPlan } from '../types/plan.js';
+import type { GameGenerationPlan } from '../types/reference.js';
+import { migrateGamePlan } from '../utils/planValidator.js';
+import { TEMPLATE_REGISTRY } from '../templates/templateRegistry.js';
+
 /**
- * Converts a validated 2D GameGenerationPlan into a PlayableGameScene.
+ * Converts a validated 2D GameDesignPlan (or legacy GameGenerationPlan) into a PlayableGameScene.
  */
 export function convertPlanToPlayableScene(
-  plan: import('../types/reference.js').GameGenerationPlan,
+  planInput: GameGenerationPlan | GameDesignPlan,
   options: { worldWidth?: number; worldHeight?: number } = {}
 ): PlayableGameScene {
-  const worldWidth = options.worldWidth ?? 800;
-  const worldHeight = options.worldHeight ?? 480;
-  const cfg = plan.suggested2DConfig || {
-    theme: 'default' as const,
-    playerSpeed: 240,
-    playerJump: 440,
-    gravity: 750,
-    platformCount: 5,
-    hazardTypes: ['spike'],
-    collectibleTypes: ['coin'],
+  const plan: GameDesignPlan =
+    planInput.schemaVersion === '2.0' && 'terrain' in planInput && planInput.terrain
+      ? (planInput as GameDesignPlan)
+      : migrateGamePlan(planInput);
+
+  const worldWidth = options.worldWidth ?? plan.world.width;
+  const worldHeight = options.worldHeight ?? plan.world.height;
+  const gravity = plan.world.gravity;
+  const theme = plan.theme.name;
+
+  // 1. Solid platforms from terrain.platforms + terrain.walls (non-doors)
+  const nonDoorWalls = plan.terrain.walls.filter(
+    (w) => !w.id.includes('door') && !w.id.includes('barrier')
+  );
+
+  const platforms: PlatformElement[] = [
+    ...plan.terrain.platforms.map((p) => ({
+      id: p.id,
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      width: Math.round(p.width),
+      height: Math.round(p.height),
+      strokeColor: p.strokeColor,
+    })),
+    ...nonDoorWalls.map((w) => ({
+      id: w.id,
+      x: Math.round(w.x),
+      y: Math.round(w.y),
+      width: Math.round(w.width),
+      height: Math.round(w.height),
+      strokeColor: w.strokeColor || '#64748b',
+    })),
+  ];
+
+  // 2. Hazards
+  const hazards: HazardElement[] = plan.terrain.hazards.map((h) => ({
+    id: h.id,
+    x: Math.round(h.x),
+    y: Math.round(h.y),
+    width: Math.round(h.width),
+    height: Math.round(h.height),
+    hazardType: (h.hazardType === 'lava' ? 'lava' : 'spike') as 'spike' | 'lava',
+  }));
+
+  // 3. Collectibles
+  const coins: CoinElement[] = plan.entities.collectibles.map((c) => ({
+    id: c.id,
+    x: Math.round(c.x),
+    y: Math.round(c.y),
+    size: 24,
+    value: c.value,
+  }));
+
+  // 4. Trampolines from interactives
+  const trampolines: TrampolineElement[] = plan.entities.interactives
+    .filter((inter) => inter.type === 'trampoline')
+    .map((inter) => ({
+      id: inter.id,
+      x: Math.round(inter.x),
+      y: Math.round(inter.y),
+      width: 48,
+      height: 18,
+      bounceStrength: 650,
+    }));
+
+  // 5. Goal
+  const goal: GoalElement = {
+    id: plan.objectives.goal.id,
+    x: Math.round(plan.objectives.goal.x),
+    y: Math.round(plan.objectives.goal.y),
+    width: Math.round(plan.objectives.goal.width),
+    height: Math.round(plan.objectives.goal.height),
   };
 
-  const platforms: PlatformElement[] = [];
-  const hazards: HazardElement[] = [];
-  const coins: CoinElement[] = [];
-
-  // 1. Base floor platform
-  platforms.push({
-    id: `plat-plan-base`,
-    x: 0,
-    y: worldHeight - 36,
-    width: worldWidth,
-    height: 36,
-    strokeColor: '#10b981',
+  // 6. Enemies
+  const enemies: EnemyElement[] = (plan.entities.enemies || []).map((e) => {
+    const enemyType: 'patrol' | 'chaser' | 'stationary' =
+      e.type === 'stationary' ? 'stationary' : 'patrol';
+    return {
+      id: e.id,
+      x: Math.round(e.x),
+      y: Math.round(e.y),
+      width: 32,
+      height: 32,
+      type: enemyType,
+      speed: e.speed ?? 100,
+      patrolRange: e.patrolDistance || 120,
+    };
   });
 
-  // 2. Stepping stone platforms based on plan
-  const count = Math.max(3, Math.min(8, cfg.platformCount));
-  const spacingX = (worldWidth - 200) / count;
+  // 7. Interactive Switches
+  const switches: SwitchElement[] = (plan.entities.interactives || [])
+    .filter((inter) => inter.type === 'switch')
+    .map((inter) => ({
+      id: inter.id,
+      x: Math.round(inter.x),
+      y: Math.round(inter.y),
+      width: inter.width ?? 32,
+      height: inter.height ?? 16,
+      targetId: inter.behavior?.targetDoorId ?? '',
+      isActivated: false,
+    }));
 
-  for (let i = 1; i <= count; i++) {
-    const platX = Math.round(60 + (i - 1) * spacingX);
-    const platY = Math.round(worldHeight - 80 - ((i % 3) * 45));
-    const platW = Math.round(100 + ((i % 2) * 30));
+  // 8. Doors
+  const doors: DoorElement[] = plan.terrain.walls
+    .filter((w) => w.id.includes('door') || w.id.includes('barrier'))
+    .map((w) => ({
+      id: w.id,
+      x: Math.round(w.x),
+      y: Math.round(w.y),
+      width: Math.round(w.width),
+      height: Math.round(w.height),
+      isOpen: false,
+    }));
 
-    platforms.push({
-      id: `plat-plan-${i}`,
-      x: platX,
-      y: platY,
-      width: platW,
-      height: 20,
-      strokeColor: '#38bdf8',
-    });
+  // Template lookup
+  const templateSpec = TEMPLATE_REGISTRY[plan.templateId];
+  const movementModel = templateSpec?.movementModel ?? (gravity === 0 ? 'topdown' : 'platformer');
+  const hudInstructions =
+    templateSpec?.controlsHelp ??
+    (gravity === 0 ? 'Arrow Keys / WASD: 4-Way Movement' : 'Arrow Keys / WASD: Move & Jump');
 
-    // Add a coin above platform
-    coins.push({
-      id: `coin-plan-${i}`,
-      x: platX + Math.round(platW / 2),
-      y: platY - 32,
-      size: 24,
-      value: 10,
-    });
+  const objectiveType =
+    plan.objectives.primary.type === 'collect_all'
+      ? 'collect_all_coins'
+      : plan.objectives.primary.type === 'survival'
+      ? 'survive_time'
+      : plan.objectives.secondary?.some((s) => s.type === 'activate_switch')
+      ? 'activate_switches'
+      : plan.objectives.primary.timeLimit
+      ? 'timed_race'
+      : 'reach_goal';
 
-    // Add a hazard between some platforms
-    if (i === 2 || i === 4) {
-      hazards.push({
-        id: `hazard-plan-${i}`,
-        x: platX + platW + 15,
-        y: worldHeight - 56,
-        width: 32,
-        height: 20,
-        hazardType: 'spike',
-      });
+  const assetsMap: Record<string, string> = {};
+  if (plan.assets?.assets) {
+    for (const a of plan.assets.assets) {
+      if (a.dataUrl) {
+        assetsMap[a.role] = a.dataUrl;
+      }
     }
   }
 
-  const goal: GoalElement = {
-    id: 'goal-plan',
-    x: worldWidth - 75,
-    y: worldHeight - 110,
-    width: 36,
-    height: 48,
-  };
-
   const scene = {
     schemaVersion: '1.0' as const,
-    source: 'gemini-vision' as const,
-    levelName: `${plan.category.toUpperCase()} — Generated Level`,
-    levelDescription: plan.userPrompt,
+    id: plan.id,
+    name: plan.title,
+    source: (plan.provenance === 'gemini-vision' ? 'gemini-vision' : 'local-vector') as SceneProvenanceSource,
+    templateId: plan.templateId,
+    movementModel,
+    levelName: plan.title || `${plan.category.toUpperCase()} — Generated Level`,
+    levelDescription: plan.description || plan.userPrompt,
+    hudInstructions,
+    assetBundle: plan.assets,
+    assets: Object.keys(assetsMap).length > 0 ? assetsMap : undefined,
     world: {
       width: worldWidth,
       height: worldHeight,
-      gravity: cfg.gravity,
-      theme: cfg.theme,
-      friction: cfg.theme === 'ice' ? 0.05 : 0.8,
-      backgroundColor: '#070a13',
+      gravity,
+      theme,
+      friction: theme === 'ice' ? 0.05 : plan.world.friction,
+      backgroundColor: plan.theme.background,
     },
     player: {
-      spawnX: 70,
-      spawnY: worldHeight - 110,
-      speed: cfg.playerSpeed,
-      jumpPower: cfg.playerJump,
-      size: 36,
+      spawnX: Math.round(plan.player.spawn.x),
+      spawnY: Math.round(plan.player.spawn.y),
+      speed: plan.player.speed,
+      jumpPower: plan.player.jumpPower,
+      size: plan.player.size,
     },
     platforms,
     hazards,
-    trampolines: [],
+    trampolines,
     coins,
+    enemies,
+    switches,
+    doors,
     goal,
+    objective: {
+      type: objectiveType as any,
+      targetCount: plan.objectives.primary.targetCount ?? (objectiveType === 'collect_all_coins' ? coins.length : undefined),
+      timeLimitSeconds: plan.objectives.primary.timeLimit,
+      description: plan.objectives.winConditions?.[0],
+    },
     diagnostics: {
-      warnings: plan.limitationsAndWarnings,
+      warnings: plan.confidenceAndWarnings?.warnings || plan.limitationsAndWarnings || [],
       assumptions: [
-        `Generated from multimodal reference plan (${plan.id}).`,
-        `Target category: ${plan.category}.`,
+        `Generated from validated GameDesignPlan (${plan.id}).`,
+        `Template: ${plan.templateId}.`,
+        `Category: ${plan.category}.`,
+        `Movement Model: ${movementModel}.`,
       ],
       strokeCount: platforms.length,
-      aiConfidence: 0.9,
+      aiConfidence:
+        plan.confidenceAndWarnings?.overallConfidence === 'high'
+          ? 0.95
+          : plan.confidenceAndWarnings?.overallConfidence === 'low'
+          ? 0.4
+          : 0.75,
     },
   };
 

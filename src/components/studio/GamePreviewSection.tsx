@@ -41,12 +41,16 @@ export const GamePreviewSection: React.FC<GamePreviewSectionProps> = ({
       jumpPower: characterConfig?.attributes.jumpPower || 400,
       size: 36,
     },
+    movementModel: 'platformer',
     platforms: [
       { id: 'plat-floor', x: 0, y: 440, width: 800, height: 40, strokeColor: '#10b981' },
     ],
     hazards: [],
     trampolines: [],
     coins: [],
+    enemies: [],
+    switches: [],
+    doors: [],
     goal: { id: 'goal-def', x: 720, y: 370, width: 36, height: 48 },
     diagnostics: { warnings: [], assumptions: [], strokeCount: 1 },
   };

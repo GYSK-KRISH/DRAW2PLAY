@@ -5,7 +5,8 @@ export type AiProviderId = 'gemini' | 'huggingface' | 'mock';
 export type AiCapability =
   | 'text-generation'
   | 'image-understanding'
-  | 'multi-image-analysis';
+  | 'multi-image-analysis'
+  | 'image-generation';
 
 export type ProviderStatus =
   | 'unconfigured'
@@ -15,11 +16,17 @@ export type ProviderStatus =
   | 'unknown';
 
 export type ProviderErrorCategory =
+  | 'missing_configuration'
   | 'auth_error'
   | 'rate_limit'
+  | 'quota_exhausted'
+  | 'invalid_request'
+  | 'unsupported_image'
   | 'timeout'
-  | 'invalid_output'
   | 'network_error'
+  | 'invalid_response'
+  | 'server_error'
+  | 'invalid_output'
   | 'unsupported_capability'
   | 'unknown_error';
 
@@ -29,12 +36,21 @@ export interface ProviderExecutionMetadata {
   durationMs: number;
   success: boolean;
   errorCategory?: ProviderErrorCategory;
+  retryCount?: number;
+  correlationId?: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 export interface BaseProviderRequest<T = unknown> {
   schema?: z.ZodType<T>;
   timeoutMs?: number;
   modelOverride?: string;
+  maxRetries?: number;
+  correlationId?: string;
 }
 
 export interface TextGenerationRequest<T = unknown> extends BaseProviderRequest<T> {
@@ -57,10 +73,21 @@ export interface MultiImageAnalysisRequest<T = unknown> extends BaseProviderRequ
   mimeType?: 'image/png' | 'image/jpeg' | 'image/webp';
 }
 
+export interface ImageGenerationRequest<T = unknown> extends BaseProviderRequest<T> {
+  capability: 'image-generation';
+  prompt: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+  numberOfImages?: number;
+  outputMimeType?: 'image/png' | 'image/jpeg' | 'image/webp';
+}
+
 export type ProviderRequest<T = unknown> =
   | TextGenerationRequest<T>
   | ImageUnderstandingRequest<T>
-  | MultiImageAnalysisRequest<T>;
+  | MultiImageAnalysisRequest<T>
+  | ImageGenerationRequest<T>;
 
 export interface ProviderResponse<T = unknown> {
   data: T;
@@ -71,23 +98,32 @@ export interface ProviderResponse<T = unknown> {
 export class AiProviderError extends Error {
   public readonly providerId: AiProviderId;
   public readonly category: ProviderErrorCategory;
+  public readonly code: string;
   public readonly statusCode?: number;
   public readonly isRetryable: boolean;
+  public readonly retryAfterMs?: number;
+  public readonly correlationId?: string;
 
   constructor(options: {
     providerId: AiProviderId;
     category: ProviderErrorCategory;
     message: string;
+    code?: string;
     statusCode?: number;
     isRetryable?: boolean;
+    retryAfterMs?: number;
+    correlationId?: string;
     cause?: unknown;
   }) {
     super(options.message);
     this.name = 'AiProviderError';
     this.providerId = options.providerId;
     this.category = options.category;
+    this.code = options.code || options.category.toUpperCase();
     this.statusCode = options.statusCode;
     this.isRetryable = options.isRetryable ?? false;
+    this.retryAfterMs = options.retryAfterMs;
+    this.correlationId = options.correlationId;
     if (options.cause) {
       this.cause = options.cause;
     }

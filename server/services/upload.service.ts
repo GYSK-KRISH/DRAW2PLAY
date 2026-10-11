@@ -13,12 +13,71 @@ export interface StoredReferenceAsset {
   buffer: Buffer;
 }
 
+export class ImageValidationError extends Error {
+  public readonly code:
+    | 'IMAGE_EMPTY'
+    | 'IMAGE_CORRUPTED'
+    | 'IMAGE_UNSUPPORTED_FORMAT'
+    | 'IMAGE_TOO_LARGE'
+    | 'IMAGE_DIMENSIONS_EXCEEDED';
+  public readonly statusCode: number;
+
+  constructor(
+    code:
+      | 'IMAGE_EMPTY'
+      | 'IMAGE_CORRUPTED'
+      | 'IMAGE_UNSUPPORTED_FORMAT'
+      | 'IMAGE_TOO_LARGE'
+      | 'IMAGE_DIMENSIONS_EXCEEDED',
+    message: string,
+    statusCode = 400
+  ) {
+    super(message);
+    this.name = 'ImageValidationError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
 /**
  * Sniff magic bytes to verify true file signature, rejecting deceptive extensions or MIME types.
  */
 export function inspectImageSignatureAndDimensions(buffer: Buffer): ImageMetadata {
+  if (!buffer || buffer.length === 0) {
+    throw new ImageValidationError('IMAGE_EMPTY', 'Image payload is empty (0 bytes).');
+  }
+
+  if (buffer.length > MAX_FILE_SIZE_BYTES) {
+    throw new ImageValidationError(
+      'IMAGE_TOO_LARGE',
+      `Uploaded file exceeds the maximum allowed size of 10MB (${(buffer.length / (1024 * 1024)).toFixed(1)}MB).`
+    );
+  }
+
+  // Check known unsupported formats to provide explicit feedback
+  const isGif = buffer.length >= 3 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46;
+  if (isGif) {
+    throw new ImageValidationError(
+      'IMAGE_UNSUPPORTED_FORMAT',
+      'Unsupported image format: GIF is not supported for vision analysis. Please provide PNG, JPEG, or WebP.'
+    );
+  }
+
+  const isBmp = buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d;
+  if (isBmp) {
+    throw new ImageValidationError(
+      'IMAGE_UNSUPPORTED_FORMAT',
+      'Unsupported image format: BMP is not supported for vision analysis. Please provide PNG, JPEG, or WebP.'
+    );
+  }
+
   if (buffer.length < 12) {
-    throw new Error('Image payload is too small or truncated to be a valid image file');
+    throw new ImageValidationError(
+      'IMAGE_CORRUPTED',
+      'Image payload is too small or truncated to be a valid image file (< 12 bytes).'
+    );
   }
 
   // 1. Check PNG Signature: 89 50 4E 47 0D 0A 1A 0A
@@ -34,10 +93,13 @@ export function inspectImageSignatureAndDimensions(buffer: Buffer): ImageMetadat
 
   if (isPng) {
     if (buffer.length < 24) {
-      throw new Error('Malformed PNG: truncated IHDR header');
+      throw new ImageValidationError('IMAGE_CORRUPTED', 'Malformed PNG: truncated IHDR header');
     }
     const width = buffer.readUInt32BE(16);
     const height = buffer.readUInt32BE(20);
+    if (width === 0 || height === 0) {
+      throw new ImageValidationError('IMAGE_CORRUPTED', 'Malformed PNG: invalid image dimensions 0x0');
+    }
     return {
       mimeType: 'image/png',
       width,
@@ -108,8 +170,8 @@ export function inspectImageSignatureAndDimensions(buffer: Buffer): ImageMetadat
       const b2 = buffer[22];
       const b3 = buffer[23];
       const b4 = buffer[24];
-      width = (1 + (((b2 & 0x3f) << 8) | b1)) || 800;
-      height = (1 + (((b4 & 0xf) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6))) || 600;
+      width = 1 + (((b2 & 0x3f) << 8) | b1) || 800;
+      height = 1 + (((b4 & 0xf) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6)) || 600;
     } else if (formatTag === 'VP8X' && buffer.length >= 30) {
       width = 1 + buffer.readUIntLE(24, 3);
       height = 1 + buffer.readUIntLE(27, 3);
@@ -123,7 +185,8 @@ export function inspectImageSignatureAndDimensions(buffer: Buffer): ImageMetadat
     };
   }
 
-  throw new Error(
+  throw new ImageValidationError(
+    'IMAGE_UNSUPPORTED_FORMAT',
     'Unsupported or corrupted image format. Only verified PNG, JPEG, or WebP files with valid file signatures are accepted.'
   );
 }
@@ -178,13 +241,19 @@ class MemoryReferenceStorageService implements IReferenceStorageService {
 
     // Dimension bounds check
     if (meta.width > 4096 || meta.height > 4096) {
-      throw new Error(`Image dimensions (${meta.width}x${meta.height}) exceed maximum allowed limit of 4096x4096px.`);
+      throw new ImageValidationError(
+        'IMAGE_DIMENSIONS_EXCEEDED',
+        `Image dimensions (${meta.width}x${meta.height}) exceed maximum allowed limit of 4096x4096px.`
+      );
     }
 
     // Size limit check (10MB)
     const MAX_BYTES = 10 * 1024 * 1024;
     if (meta.sizeBytes > MAX_BYTES) {
-      throw new Error(`File size (${(meta.sizeBytes / 1024 / 1024).toFixed(2)}MB) exceeds 10MB limit.`);
+      throw new ImageValidationError(
+        'IMAGE_TOO_LARGE',
+        `File size (${(meta.sizeBytes / 1024 / 1024).toFixed(2)}MB) exceeds 10MB limit.`
+      );
     }
 
     const safeId = `ref-${crypto.randomUUID().slice(0, 12)}`;

@@ -35,6 +35,7 @@ export const AnalysisProvenanceSchema = z.enum([
   'gemini-vision',
   'mock-heuristic',
   'manual-input',
+  'development-mock',
 ]);
 export type AnalysisProvenance = z.infer<typeof AnalysisProvenanceSchema>;
 
@@ -120,22 +121,96 @@ export const FrameAnalysisResultSchema = z.object({
 export type FrameAnalysisResult = z.infer<typeof FrameAnalysisResultSchema>;
 
 /**
- * Phase 6.2: Structured Visual Reference Analysis (schema version 2.0)
+ * Stage 2: Factual visual observations supported directly by the reference image.
+ * Must NOT contain speculative gameplay logic or unobserved rules.
+ */
+export const ObservedEvidenceSchema = z.object({
+  majorShapesAndBoundaries: z.array(z.string().max(100)).max(15).default([]),
+  platformsAndFloors: z.array(z.string().max(100)).max(15).default([]),
+  wallsAndCorridors: z.array(z.string().max(100)).max(15).default([]),
+  visibleCharactersAndObjects: z.array(z.string().max(80)).max(15).default([]),
+  visibleHazards: z.array(z.string().max(80)).max(10).default([]),
+  visibleCollectibles: z.array(z.string().max(80)).max(10).default([]),
+  relativeSpatialLayout: z.string().max(300).default(''),
+  dominantColors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(1).max(8).default(['#00ffcc']),
+  visualStyle: z.string().min(1).max(120).default('2D Pixel Art'),
+  uncertainAndOccludedRegions: z.array(z.string().max(200)).max(8).default([]),
+});
+export type ObservedEvidence = z.infer<typeof ObservedEvidenceSchema>;
+
+/**
+ * Stage 2: Creative game design proposals based on observations.
+ * Explicitly separated from observed physical evidence.
+ */
+export const ProposedDesignSchema = z.object({
+  suggestedGenre: GameCategorySchema.default('2d-platformer'),
+  cameraPerspective: CameraPerspectiveSchema.default('side-scrolling-2d'),
+  playerAbilitiesAndMovement: z
+    .object({
+      movementType: z.string().max(60).default('Run and Jump'),
+      abilities: z.array(z.string().max(50)).max(6).default(['walk', 'run', 'jump']),
+    })
+    .default({ movementType: 'Run and Jump', abilities: ['walk', 'run', 'jump'] }),
+  coreGameplayLoop: z.string().max(300).default('Traverse platforms, avoid hazards, collect items, reach the goal.'),
+  objectivesAndConditions: z
+    .object({
+      primaryObjective: z.string().max(150).default('Reach the exit flag'),
+      winConditions: z.array(z.string().max(100)).max(5).default(['Reach the goal']),
+      loseConditions: z.array(z.string().max(100)).max(5).default(['Fall into hazards']),
+    })
+    .default({
+      primaryObjective: 'Reach the exit flag',
+      winConditions: ['Reach the goal'],
+      loseConditions: ['Fall into hazards'],
+    }),
+  proposedEnemiesAndHazards: z
+    .array(
+      z.object({
+        name: z.string().max(60),
+        behaviorProposal: z.string().max(200),
+      })
+    )
+    .max(6)
+    .default([]),
+  proposedCollectibles: z
+    .array(
+      z.object({
+        name: z.string().max(60),
+        interactionProposal: z.string().max(200),
+      })
+    )
+    .max(6)
+    .default([]),
+  difficultyProgression: z
+    .object({
+      tier: z.enum(['easy', 'medium', 'hard']).default('medium'),
+      pacingNotes: z.string().max(200).default('Standard platformer pacing with gradual challenge increase.'),
+    })
+    .default({ tier: 'medium', pacingNotes: 'Standard platformer pacing.' }),
+  audioVisualFeedback: z
+    .object({
+      visualStyleCues: z.array(z.string().max(80)).max(6).default([]),
+      suggestedAudioMood: z.string().max(100).default('Chiptune retro upbeat'),
+    })
+    .default({ visualStyleCues: [], suggestedAudioMood: 'Chiptune retro upbeat' }),
+  inferredMechanics: z.array(InferredMechanicSchema).max(8).default([]),
+});
+export type ProposedDesign = z.infer<typeof ProposedDesignSchema>;
+
+/**
+ * Phase 6.2 & Stage 2: Structured Visual Reference Analysis
  *
  * KEY INVARIANTS:
  * - `provenance` must accurately reflect how the analysis was produced
- * - `analysisConfidenceTier` summarises overall reliability
- * - `frameResults` is populated only for multi-frame video analysis
- * - All inferred mechanics must have ≥1 observationalEvidence item
+ * - `observedEvidence` details what is visibly verifiable in the image
+ * - `proposedDesign` details creative hypotheses separated from observations
  */
 export const ReferenceAnalysisSchema = z.object({
-  /** v2.0 adds observational grounding, confidence tier, and multi-frame support */
   schemaVersion: z.string().default('2.0'),
   category: GameCategorySchema,
   cameraPerspective: CameraPerspectiveSchema,
   visualStyle: z.string().min(1).max(120),
   colorPalette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(1).max(8),
-  /** Directly observed objects/elements — factual, not inferred */
   visibleObjects: z.array(z.string().max(80)).max(15),
   terrainLayout: z.string().max(300),
   suggestedRoles: z.object({
@@ -144,47 +219,69 @@ export const ReferenceAnalysisSchema = z.object({
     collectibles: z.array(z.string().max(80)).max(10).optional(),
     goals: z.array(z.string().max(80)).max(5).optional(),
   }),
-  /** Mechanics are INFERENCES grounded in observations — never presented as fact */
   inferredMechanics: z.array(InferredMechanicSchema).max(8),
-  /** Explicit unknowns, limitations, and boundary notes */
   uncertaintiesAndWarnings: z.array(z.string().max(300)).max(8),
   recommendedPipeline: TargetEngineSchema,
   provenance: AnalysisProvenanceSchema,
   modelProvenance: z.string().optional(),
+  correlationId: z.string().optional(),
+  usage: z
+    .object({
+      promptTokens: z.number().optional(),
+      completionTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+    })
+    .optional(),
   analyzedAt: z.string(),
-  /** Phase 6.2: Overall confidence tier for this analysis */
   analysisConfidenceTier: AnalysisConfidenceTierSchema.default('medium'),
-  /** Phase 6.2: Number of frames analysed (1 for single image) */
   frameCount: z.number().int().min(1).max(10).default(1),
-  /** Phase 6.2: Per-frame detail, populated for multi-frame video analysis */
   frameResults: z.array(FrameAnalysisResultSchema).max(10).optional(),
+
+  // Stage 2: Explicit separation of observed evidence vs proposed design
+  observedEvidence: ObservedEvidenceSchema.optional(),
+  proposedDesign: ProposedDesignSchema.optional(),
 });
 export type ReferenceAnalysis = z.infer<typeof ReferenceAnalysisSchema>;
 
 /**
- * Structured Game Generation Plan
+ * Structured Game Generation Plan Schema (supports both v1.0 and v2.0 fields)
  */
 export const GameGenerationPlanSchema = z.object({
+  schemaVersion: z.string().default('2.0'),
   id: z.string().min(1),
+  generationId: z.string().optional(),
   referenceId: z.string().min(1),
   userPrompt: z.string().min(1).max(500),
   targetEngine: TargetEngineSchema,
   category: GameCategorySchema,
-  requestedFeatures: z.array(z.string().max(100)).max(10),
+  requestedFeatures: z.array(z.string().max(100)).max(15).default([]),
   validatedSceneReference: z.string().optional(),
-  missingRequirements: z.array(z.string().max(200)).max(10),
-  limitationsAndWarnings: z.array(z.string().max(300)).max(10),
+  missingRequirements: z.array(z.string().max(200)).max(15).default([]),
+  limitationsAndWarnings: z.array(z.string().max(300)).max(15).default([]),
   status: PlanStatusSchema,
   createdAt: z.string(),
+  templateId: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  sourceType: z.string().optional(),
+  theme: z.record(z.string(), z.unknown()).optional(),
+  world: z.record(z.string(), z.unknown()).optional(),
+  terrain: z.record(z.string(), z.unknown()).optional(),
+  player: z.record(z.string(), z.unknown()).optional(),
+  entities: z.record(z.string(), z.unknown()).optional(),
+  objectives: z.record(z.string(), z.unknown()).optional(),
+  difficulty: z.record(z.string(), z.unknown()).optional(),
+  mechanics: z.record(z.string(), z.unknown()).optional(),
+  confidenceAndWarnings: z.record(z.string(), z.unknown()).optional(),
   suggested2DConfig: z
     .object({
       theme: z.enum(['default', 'forest', 'ice', 'lava', 'space', 'cyberpunk']),
-      playerSpeed: z.number().int().min(100).max(450),
-      playerJump: z.number().int().min(250).max(650),
-      gravity: z.number().int().min(300).max(1200),
-      platformCount: z.number().int().min(1).max(30),
-      hazardTypes: z.array(z.string()).max(5),
-      collectibleTypes: z.array(z.string()).max(5),
+      playerSpeed: z.number().int().min(80).max(500),
+      playerJump: z.number().int().min(0).max(700),
+      gravity: z.number().int().min(0).max(2000),
+      platformCount: z.number().int().min(1).max(50),
+      hazardTypes: z.array(z.string()).max(10),
+      collectibleTypes: z.array(z.string()).max(10),
     })
     .optional(),
 });

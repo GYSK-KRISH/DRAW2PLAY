@@ -194,6 +194,8 @@ export interface SceneSummary {
   hasTrampolines: boolean;
   estimatedMemoryBytes: number;
   extractedElementCount?: number;
+  readinessStatus?: 'ready' | 'missing-ground' | 'missing-goal' | 'missing-both' | 'empty';
+  actionableGuidance?: string;
 }
 
 /**

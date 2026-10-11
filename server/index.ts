@@ -8,6 +8,9 @@ import { healthRouter } from './routes/health.routes.js';
 import { aiRouter } from './routes/ai.routes.js';
 import { referenceRouter } from './routes/reference.routes.js';
 import { sandboxSessionRouter } from './routes/sandboxSession.routes.js';
+import { assetRouter } from './routes/asset.routes.js';
+import { remixRouter } from './routes/remix.routes.js';
+import { galleryRouter } from './routes/gallery.routes.js';
 
 export const app = express();
 
@@ -25,7 +28,7 @@ app.use(
       }
       return callback(new Error(`Origin ${origin} not permitted by CORS`));
     },
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   })
 );
 
@@ -45,6 +48,9 @@ app.use('/api/health', healthRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/reference', referenceRouter);
 app.use('/api/sandbox/session', sandboxSessionRouter);
+app.use('/api/assets', assetRouter);
+app.use('/api/remix-level', remixRouter);
+app.use('/api/gallery', galleryRouter);
 
 // 404 handler for unknown /api endpoints
 app.use('/api', (_req: Request, res: Response) => {

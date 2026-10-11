@@ -22,6 +22,7 @@ console.log('▶ Test 1: PlayableGameSceneSchema validates contract');
 const validScene: PlayableGameScene = {
   schemaVersion: '1.0',
   source: 'local-vector',
+  movementModel: 'platformer',
   levelName: 'Emerald Run',
   levelDescription: 'A classic 2D obstacle course.',
   world: {
@@ -80,6 +81,9 @@ const validScene: PlayableGameScene = {
       value: 10,
     },
   ],
+  enemies: [],
+  switches: [],
+  doors: [],
   goal: {
     id: 'goal-1',
     x: 720,

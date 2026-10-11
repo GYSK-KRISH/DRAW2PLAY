@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from './components/studio/TopBar.js';
 import { SketchToolbar } from './components/studio/SketchToolbar.js';
 import { InteractiveCanvas, type InteractiveCanvasHandle } from './components/canvas/InteractiveCanvas.js';
@@ -22,10 +22,12 @@ import type {
 } from './types/sketch.js';
 import type { PlayableGameScene } from './types/scene.js';
 import type { GameGenerationPlan } from './types/reference.js';
+import { DEFAULT_AI_STATUS, type AiPipelineStatus } from './types/aiStatus.js';
 import { calculateSceneSummary } from './utils/sketchSerializer.js';
 import { extractSceneGeometry } from './utils/geometryExtractor.js';
 import { convertSketchToPlayableScene } from './game/sceneConverter.js';
 import { fetchHealth } from './services/api.js';
+import { analysisLifecycleManager } from './services/analysisLifecycle.js';
 import { getAllCreations, saveCreation } from './services/creationStorage.js';
 import { audioService } from './services/audioService.js';
 
@@ -53,6 +55,34 @@ export function App() {
 
   // Backend Health & Gemini Status
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+  const [aiStatus, setAiStatus] = useState<AiPipelineStatus>(DEFAULT_AI_STATUS);
+
+  // Probe backend server and Gemini provider configuration
+  const checkHealth = useCallback(async () => {
+    setAiStatus((prev) => ({ ...prev, connectivity: 'checking' }));
+    try {
+      const data = await fetchHealth();
+      const isGemini = Boolean(data.geminiConfigured);
+      setGeminiConfigured(isGemini);
+      setAiStatus((prev) => ({
+        ...prev,
+        connectivity: 'connected',
+        providerConfig: isGemini ? 'gemini-ready' : 'mock-fallback',
+        latestProvider: isGemini ? (data.aiProvider || 'gemini-2.5-flash') : 'mock-heuristic',
+        fallbackReason: isGemini ? null : 'Deterministic Local Heuristic active (offline or unconfigured API key).',
+        lastCheckedAt: new Date().toLocaleTimeString(),
+      }));
+    } catch {
+      setGeminiConfigured(false);
+      setAiStatus((prev) => ({
+        ...prev,
+        connectivity: 'offline',
+        providerConfig: 'mock-fallback',
+        fallbackReason: 'Backend server offline (port 3001 unreachable). Local vector physics mode active.',
+        lastCheckedAt: new Date().toLocaleTimeString(),
+      }));
+    }
+  }, []);
 
   // Audio State
   const [isMuted, setIsMuted] = useState<boolean>(audioService.getIsMuted());
@@ -71,20 +101,60 @@ export function App() {
     let mounted = true;
     fetchHealth()
       .then((data) => {
-        if (mounted) {
-          setGeminiConfigured(Boolean(data.geminiConfigured));
-        }
+        if (!mounted) return;
+        const isGemini = Boolean(data.geminiConfigured);
+        setGeminiConfigured(isGemini);
+        setAiStatus((prev) => ({
+          ...prev,
+          connectivity: 'connected',
+          providerConfig: isGemini ? 'gemini-ready' : 'mock-fallback',
+          latestProvider: isGemini ? (data.aiProvider || 'gemini-2.5-flash') : 'mock-heuristic',
+          fallbackReason: isGemini ? null : 'Deterministic Local Heuristic active (offline or unconfigured API key).',
+          lastCheckedAt: new Date().toLocaleTimeString(),
+        }));
       })
       .catch(() => {
-        // Backend not currently responding or in offline mock mode
-        if (mounted) {
-          setGeminiConfigured(false);
-        }
+        if (!mounted) return;
+        setGeminiConfigured(false);
+        setAiStatus((prev) => ({
+          ...prev,
+          connectivity: 'offline',
+          providerConfig: 'mock-fallback',
+          fallbackReason: 'Backend server offline (port 3001 unreachable). Local vector physics mode active.',
+          lastCheckedAt: new Date().toLocaleTimeString(),
+        }));
       });
 
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Synchronize Analysis Lifecycle Manager state into AI status
+  useEffect(() => {
+    const unsub = analysisLifecycleManager.subscribe((snapshot) => {
+      setAiStatus((prev) => {
+        let activeStage = prev.activeStage;
+        if (snapshot.state === 'success') activeStage = 'ready';
+        else if (snapshot.state === 'cancelled') activeStage = 'idle';
+        else activeStage = snapshot.state as any;
+
+        return {
+          ...prev,
+          activeStage,
+          correlationId: snapshot.correlationId || undefined,
+          latestProvider: snapshot.provider?.model || prev.latestProvider,
+          latestProvenance: (snapshot.source as any) || prev.latestProvenance,
+          lastErrorCategory: (snapshot.error?.category as any) || (snapshot.error ? 'network_error' : 'none'),
+          lastErrorMessage: snapshot.error?.message || null,
+          retryAvailable: Boolean(snapshot.error?.isRetryable),
+          fallbackReason: snapshot.provider?.isFallback
+            ? (snapshot.notice || 'Heuristic fallback used.')
+            : prev.fallbackReason,
+        };
+      });
+    });
+    return unsub;
   }, []);
 
   // Modals Visibility
@@ -356,6 +426,8 @@ export function App() {
                 canvasDimensions={canvasDimensions}
                 extractedElements={extractedElements}
                 geminiConfigured={geminiConfigured}
+                aiStatus={aiStatus}
+                onRefreshHealth={checkHealth}
               />
             </div>
           </main>

@@ -14,15 +14,28 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   ArrowUp,
   Gamepad2,
   Wand2,
+  Ghost,
+  Globe,
+  Share2,
 } from 'lucide-react';
 import { createGameConfig } from '../../game/config.js';
 import { MainScene } from '../../game/scenes/MainScene.js';
 import type { PlayableGameScene, GamePlayState } from '../../types/scene.js';
 import { audioService } from '../../services/audioService.js';
 import { TransformationModal } from '../studio/TransformationModal.js';
+import { PromptToPatchModal } from './PromptToPatchModal.js';
+import type { JsonPatchOperation, AffectedSystem } from '../../types/remix.js';
+import type { ReplayData } from '../../types/replay.js';
+import { getBestReplayForLevel, saveReplay } from '../../services/replayStorage.js';
+import { GhostControlsBar } from './GhostControlsBar.js';
+import { ReplaySaveModal } from './ReplaySaveModal.js';
+import { PublishLevelModal } from '../gallery/PublishLevelModal.js';
+import { CommunityGalleryModal } from '../gallery/CommunityGalleryModal.js';
 
 interface PhaserGameViewProps {
   sceneData: PlayableGameScene;
@@ -48,6 +61,37 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
   const [hasSavedCreation, setHasSavedCreation] = useState<boolean>(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(true);
   const [isTransformModalOpen, setIsTransformModalOpen] = useState<boolean>(false);
+  const [isRemixModalOpen, setIsRemixModalOpen] = useState<boolean>(false);
+  const [planVersion, setPlanVersion] = useState<number>(1);
+  const [previousSceneHistory, setPreviousSceneHistory] = useState<PlayableGameScene[]>([]);
+
+  // Stage 8: Replay Recording, Ghost Playback, and Community Gallery
+  const [activeGhostReplay, setActiveGhostReplay] = useState<ReplayData | null>(null);
+  const [isGhostActive, setIsGhostActive] = useState<boolean>(false);
+  const [lastRecordedReplay, setLastRecordedReplay] = useState<ReplayData | null>(null);
+  const [isReplaySaveModalOpen, setIsReplaySaveModalOpen] = useState<boolean>(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
+  const [isGalleryModalOpen, setIsGalleryModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (activeScene?.id) {
+      const best = getBestReplayForLevel(activeScene.id);
+      if (best) {
+        queueMicrotask(() => {
+          setActiveGhostReplay(best);
+        });
+      }
+    }
+  }, [activeScene?.id]);
+
+  const handleReplayRecorded = useCallback((replay: ReplayData) => {
+    setLastRecordedReplay(replay);
+    if (replay.summary.completed) {
+      saveReplay(replay);
+      setActiveGhostReplay(replay);
+      setIsReplaySaveModalOpen(true);
+    }
+  }, []);
 
   const handleGameStateChange = useCallback((
     newState: GamePlayState,
@@ -77,10 +121,13 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
         scene.scene.restart({
           sceneData: activeScene,
           onGameStateChange: handleGameStateChange,
+          ghostReplay: activeGhostReplay || undefined,
+          onReplayRecorded: handleReplayRecorded,
         });
+        setIsGhostActive(Boolean(activeGhostReplay));
       }
     });
-  }, [activeScene, handleGameStateChange]);
+  }, [activeScene, activeGhostReplay, handleGameStateChange, handleReplayRecorded]);
 
   useEffect(() => {
     initGame();
@@ -143,8 +190,71 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
     }
   };
 
+  const handleApplyRemixPatch = (
+    newScene: PlayableGameScene,
+    _patch: JsonPatchOperation[],
+    affectedSystems: AffectedSystem[],
+    _canHotUpdate: boolean
+  ) => {
+    setPreviousSceneHistory((prev) => [...prev, activeScene]);
+    setActiveScene(newScene);
+    setPlanVersion((v) => v + 1);
+
+    if (gameRef.current) {
+      const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+      if (scene) {
+        scene.applyRemixHotPatch(newScene, affectedSystems);
+      }
+    }
+  };
+
+  const handleRevertRemix = () => {
+    if (previousSceneHistory.length === 0) return;
+    const lastScene = previousSceneHistory[previousSceneHistory.length - 1];
+    setPreviousSceneHistory((prev) => prev.slice(0, -1));
+    setActiveScene(lastScene);
+    setPlanVersion((v) => Math.max(1, v - 1));
+
+    if (gameRef.current) {
+      const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+      if (scene) {
+        scene.applyRemixHotPatch(lastScene, ['presentation', 'physics', 'entities', 'structural']);
+      }
+    }
+  };
+
+  const handleToggleGhostRun = () => {
+    if (!activeGhostReplay) return;
+    audioService.playClick();
+    if (isGhostActive) {
+      if (gameRef.current) {
+        const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+        scene?.stopGhost();
+      }
+      setIsGhostActive(false);
+    } else {
+      setIsGhostActive(true);
+      if (gameRef.current) {
+        const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+        scene?.scene.restart({
+          sceneData: activeScene,
+          onGameStateChange: handleGameStateChange,
+          ghostReplay: activeGhostReplay,
+          onReplayRecorded: handleReplayRecorded,
+        });
+      }
+    }
+  };
+
   // Virtual touch input dispatchers
-  const dispatchTouchInput = (input: { left?: boolean; right?: boolean; jump?: boolean }) => {
+  const dispatchTouchInput = (input: {
+    left?: boolean;
+    right?: boolean;
+    up?: boolean;
+    down?: boolean;
+    jump?: boolean;
+    action?: boolean;
+  }) => {
     if (gameRef.current) {
       const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
       if (scene) {
@@ -154,6 +264,7 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
   };
 
   const totalCoins = sceneData.coins.length;
+  const isTopDown = activeScene.movementModel === 'topdown' || activeScene.world.gravity === 0;
 
   return (
     <div className="relative w-full rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl bg-slate-950 flex flex-col items-center select-none">
@@ -178,6 +289,16 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
           <span className="font-bold text-white text-xs sm:text-sm truncate max-w-[140px] sm:max-w-[200px]">
             {activeScene.levelName}
           </span>
+
+          {/* Template & Movement Model Badge */}
+          {activeScene.templateId && (
+            <span
+              title={`Template: ${activeScene.templateId} (${activeScene.movementModel || 'platformer'})`}
+              className="hidden md:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-cyan-950/60 text-cyan-300 border border-cyan-800/60"
+            >
+              {activeScene.templateId}
+            </span>
+          )}
 
           {/* AI Provenance Badge */}
           {activeScene.source === 'gemini-vision' && (
@@ -260,6 +381,69 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
             <span className="hidden sm:inline">AI Transform</span>
           </button>
 
+          {/* Live Prompt-to-Patch Remix Button */}
+          <button
+            type="button"
+            onClick={() => {
+              audioService.playClick();
+              setIsRemixModalOpen(true);
+            }}
+            title="Live Prompt-to-Patch Game Remixing"
+            aria-label="Remix Level Live"
+            className="px-2.5 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 hover:text-white border border-cyan-800/60 transition-colors flex items-center gap-1 cursor-pointer font-semibold text-xs focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Live Remix</span>
+          </button>
+
+          {/* Stage 8: Community Gallery Button */}
+          <button
+            type="button"
+            onClick={() => {
+              audioService.playClick();
+              setIsGalleryModalOpen(true);
+            }}
+            title="Browse Community Gallery Levels"
+            aria-label="Community Gallery"
+            className="px-2.5 py-1 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white border border-indigo-800/60 transition-colors flex items-center gap-1 cursor-pointer font-semibold text-xs focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+          >
+            <Globe className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Gallery</span>
+          </button>
+
+          {/* Stage 8: Race Ghost Toggle Button */}
+          {activeGhostReplay && (
+            <button
+              type="button"
+              onClick={handleToggleGhostRun}
+              title={isGhostActive ? 'Stop Ghost Playback' : 'Race Against Best Ghost'}
+              aria-label="Race Ghost"
+              className={`px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1 cursor-pointer font-semibold text-xs focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${
+                isGhostActive
+                  ? 'bg-cyan-600 text-white border-cyan-400 shadow-md shadow-cyan-600/30'
+                  : 'bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 hover:text-white border-cyan-800/60'
+              }`}
+            >
+              <Ghost className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="hidden sm:inline">{isGhostActive ? 'Ghost Active' : 'Race Ghost'}</span>
+            </button>
+          )}
+
+          {/* Stage 8: Publish Level Button */}
+          <button
+            type="button"
+            onClick={() => {
+              audioService.playClick();
+              setIsPublishModalOpen(true);
+            }}
+            title="Publish Level to Community Gallery"
+            aria-label="Publish Level"
+            className="px-2.5 py-1 rounded-lg bg-violet-950/40 hover:bg-violet-900/60 text-violet-300 hover:text-white border border-violet-800/60 transition-colors flex items-center gap-1 cursor-pointer font-semibold text-xs focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:outline-none"
+          >
+            <Share2 className="w-3.5 h-3.5 text-violet-400" />
+            <span className="hidden sm:inline">Publish</span>
+          </button>
+
           {/* Restart Level Button */}
           <button
             type="button"
@@ -276,6 +460,41 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
 
       {/* Phaser Canvas Viewport Mount */}
       <div className="relative w-full flex flex-col items-center justify-center bg-slate-950 p-2 sm:p-4">
+        {/* Stage 8: Floating Ghost Controls Bar */}
+        {isGhostActive && activeGhostReplay && (
+          <div className="absolute top-6 z-20">
+            <GhostControlsBar
+              ghostName={activeGhostReplay.playerName || 'Best Run'}
+              bestDurationMs={activeGhostReplay.summary.durationMs}
+              onPause={() => {
+                if (gameRef.current) {
+                  const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+                  scene?.pauseGhost();
+                }
+              }}
+              onResume={() => {
+                if (gameRef.current) {
+                  const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+                  scene?.resumeGhost();
+                }
+              }}
+              onStop={() => {
+                if (gameRef.current) {
+                  const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+                  scene?.stopGhost();
+                }
+                setIsGhostActive(false);
+              }}
+              onSetSpeed={(speed) => {
+                if (gameRef.current) {
+                  const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+                  scene?.setGhostSpeed(speed);
+                }
+              }}
+            />
+          </div>
+        )}
+
         <div
           ref={containerRef}
           className="w-full max-w-[800px] aspect-[800/480] rounded-xl overflow-hidden shadow-2xl border border-slate-800 relative"
@@ -284,52 +503,99 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
         {/* ON-SCREEN TOUCH CONTROLS (For mobile, tablet, or mouse gamers) */}
         {showTouchControls && (
           <div className="w-full max-w-[800px] mt-2.5 flex items-center justify-between px-2 text-xs select-none">
-            {/* D-Pad Horizontal Movement */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onPointerDown={() => dispatchTouchInput({ left: true })}
-                onPointerUp={() => dispatchTouchInput({ left: false })}
-                onPointerLeave={() => dispatchTouchInput({ left: false })}
-                aria-label="Move Left"
-                className="w-12 h-11 rounded-xl bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
+            {/* D-Pad Movement */}
+            {isTopDown ? (
+              <div className="grid grid-cols-3 gap-1">
+                <div />
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ up: true })}
+                  onPointerUp={() => dispatchTouchInput({ up: false })}
+                  onPointerLeave={() => dispatchTouchInput({ up: false })}
+                  aria-label="Move Up"
+                  className="w-10 h-10 rounded-lg bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <div />
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ left: true })}
+                  onPointerUp={() => dispatchTouchInput({ left: false })}
+                  onPointerLeave={() => dispatchTouchInput({ left: false })}
+                  aria-label="Move Left"
+                  className="w-10 h-10 rounded-lg bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ down: true })}
+                  onPointerUp={() => dispatchTouchInput({ down: false })}
+                  onPointerLeave={() => dispatchTouchInput({ down: false })}
+                  aria-label="Move Down"
+                  className="w-10 h-10 rounded-lg bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ right: true })}
+                  onPointerUp={() => dispatchTouchInput({ right: false })}
+                  onPointerLeave={() => dispatchTouchInput({ right: false })}
+                  aria-label="Move Right"
+                  className="w-10 h-10 rounded-lg bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ left: true })}
+                  onPointerUp={() => dispatchTouchInput({ left: false })}
+                  onPointerLeave={() => dispatchTouchInput({ left: false })}
+                  aria-label="Move Left"
+                  className="w-12 h-11 rounded-xl bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
 
-              <button
-                type="button"
-                onPointerDown={() => dispatchTouchInput({ right: true })}
-                onPointerUp={() => dispatchTouchInput({ right: false })}
-                onPointerLeave={() => dispatchTouchInput({ right: false })}
-                aria-label="Move Right"
-                className="w-12 h-11 rounded-xl bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ right: true })}
+                  onPointerUp={() => dispatchTouchInput({ right: false })}
+                  onPointerLeave={() => dispatchTouchInput({ right: false })}
+                  aria-label="Move Right"
+                  className="w-12 h-11 rounded-xl bg-slate-800/90 active:bg-cyan-600 text-slate-200 active:text-white border border-slate-700 flex items-center justify-center font-bold text-lg shadow-lg touch-none transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
 
             {/* Desktop Keyboard Guidance */}
-            <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-              <span>[A/D/◀/▶] Move</span>
-              <span>•</span>
-              <span>[W/Space/▲] Jump</span>
+            <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+              <span>{activeScene.hudInstructions || (isTopDown ? '[WASD / Arrows] 4-Way Move' : '[A/D/◀/▶] Move • [W/Space/▲] Jump')}</span>
             </div>
 
-            {/* Jump Button */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onPointerDown={() => dispatchTouchInput({ jump: true })}
-                onPointerUp={() => dispatchTouchInput({ jump: false })}
-                onPointerLeave={() => dispatchTouchInput({ jump: false })}
-                aria-label="Jump"
-                className="px-5 h-11 rounded-xl bg-purple-600/90 active:bg-purple-500 text-white border border-purple-500/50 flex items-center justify-center gap-1.5 font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-950/40 touch-none transition-colors"
-              >
-                <ArrowUp className="w-4 h-4" />
-                <span>Jump</span>
-              </button>
-            </div>
+            {/* Action / Jump Button */}
+            {!isTopDown && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onPointerDown={() => dispatchTouchInput({ jump: true })}
+                  onPointerUp={() => dispatchTouchInput({ jump: false })}
+                  onPointerLeave={() => dispatchTouchInput({ jump: false })}
+                  aria-label="Jump"
+                  className="px-5 h-11 rounded-xl bg-purple-600/90 active:bg-purple-500 text-white border border-purple-500/50 flex items-center justify-center gap-1.5 font-black text-xs uppercase tracking-wider shadow-lg shadow-purple-950/40 touch-none transition-colors"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                  <span>Jump</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -456,6 +722,55 @@ export const PhaserGameView: React.FC<PhaserGameViewProps> = ({
           onApplyTransformation={handleApplyTransformation}
           onClose={() => setIsTransformModalOpen(false)}
         />
+
+        {/* STAGE 7: PROMPT-TO-PATCH REMIX MODAL */}
+        <PromptToPatchModal
+          isOpen={isRemixModalOpen}
+          onClose={() => setIsRemixModalOpen(false)}
+          activeScene={activeScene}
+          onApplyPatch={handleApplyRemixPatch}
+          onRevert={handleRevertRemix}
+          hasUndo={previousSceneHistory.length > 0}
+          currentVersion={planVersion}
+        />
+
+        {/* STAGE 8: COMMUNITY GALLERY MODAL */}
+        <CommunityGalleryModal
+          isOpen={isGalleryModalOpen}
+          onClose={() => setIsGalleryModalOpen(false)}
+          onPlayLevel={(newScene, ghost) => {
+            setActiveScene(newScene);
+            if (ghost) {
+              setActiveGhostReplay(ghost);
+              setIsGhostActive(true);
+            } else {
+              setActiveGhostReplay(null);
+              setIsGhostActive(false);
+            }
+            if (gameRef.current) {
+              const scene = gameRef.current.scene.getScene('MainScene') as MainScene;
+              scene?.restartGame(newScene);
+            }
+          }}
+        />
+
+        {/* STAGE 8: PUBLISH LEVEL MODAL */}
+        <PublishLevelModal
+          isOpen={isPublishModalOpen}
+          onClose={() => setIsPublishModalOpen(false)}
+          scene={activeScene}
+          replay={lastRecordedReplay || activeGhostReplay || undefined}
+        />
+
+        {/* STAGE 8: REPLAY SAVE MODAL */}
+        {lastRecordedReplay && (
+          <ReplaySaveModal
+            isOpen={isReplaySaveModalOpen}
+            onClose={() => setIsReplaySaveModalOpen(false)}
+            onOpenPublishModal={() => setIsPublishModalOpen(true)}
+            replay={lastRecordedReplay}
+          />
+        )}
       </div>
     </div>
   );

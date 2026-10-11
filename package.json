@@ -11,7 +11,7 @@
     "start": "tsx server/index.ts",
     "server": "tsx server/index.ts",
     "mcp": "tsx server/mcp/index.ts",
-    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts && tsx test/phase10.test.ts && tsx test/phase11.test.ts",
+    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts && tsx test/phase10.test.ts && tsx test/phase11.test.ts && tsx test/referenceReliability.test.ts && tsx test/gamePlanIntelligence.test.ts && tsx test/multiTemplatePlayableGeneration.test.ts && tsx test/stage4Experience.test.ts && tsx test/assetGeneration.test.ts && tsx test/gameDirector.test.ts && tsx test/remixPatch.test.ts && tsx test/replayGallery.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

@@ -487,6 +487,7 @@ aiProviderRegistry.registerProvider(new GeminiProvider({ client: mockTransformat
 const sampleScene: PlayableGameScene = {
   schemaVersion: '1.0',
   source: 'local-vector',
+  movementModel: 'platformer',
   levelName: 'Grass Run',
   levelDescription: 'Basic test level',
   world: {
@@ -504,6 +505,9 @@ const sampleScene: PlayableGameScene = {
   hazards: [],
   trampolines: [],
   coins: [],
+  enemies: [],
+  switches: [],
+  doors: [],
   goal: { id: 'g1', x: 750, y: 400, width: 32, height: 40 },
   diagnostics: { warnings: [], assumptions: [], strokeCount: 1 },
 };

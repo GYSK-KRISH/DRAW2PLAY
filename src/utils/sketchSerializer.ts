@@ -92,17 +92,39 @@ export function calculateSceneSummary(strokes: SketchStroke[]): SceneSummary {
   // Rough estimation of serialized memory footprint in bytes
   const estimatedMemoryBytes = JSON.stringify(strokes).length * 2;
 
+  const hasGround = counts.ground > 0;
+  const hasGoal = counts.goal > 0;
+
+  let readinessStatus: SceneSummary['readinessStatus'] = 'ready';
+  let actionableGuidance = 'All level requirements satisfied! Ready for local physics or AI analysis.';
+
+  if (strokes.length === 0) {
+    readinessStatus = 'empty';
+    actionableGuidance = 'Canvas is empty. Draw with any tool or upload a visual reference.';
+  } else if (!hasGround && !hasGoal) {
+    readinessStatus = 'missing-both';
+    actionableGuidance = 'Missing ground and goal. Every level requires walkable terrain and a finish flag.';
+  } else if (!hasGround) {
+    readinessStatus = 'missing-ground';
+    actionableGuidance = 'Missing ground platform. Select the Emerald Ground tool to draw walkable surfaces.';
+  } else if (!hasGoal) {
+    readinessStatus = 'missing-goal';
+    actionableGuidance = 'Missing goal. Select the Purple Goal tool to place the finish victory line.';
+  }
+
   return {
     totalStrokes: strokes.length,
     totalPoints,
     elementCounts: counts,
-    hasGround: counts.ground > 0,
-    hasGoal: counts.goal > 0,
+    hasGround,
+    hasGoal,
     hasHazards: counts.hazard > 0,
     hasCoins: counts.coin > 0,
     hasTrampolines: counts.trampoline > 0,
     estimatedMemoryBytes,
     extractedElementCount: extractedElements.length,
+    readinessStatus,
+    actionableGuidance,
   };
 }
 

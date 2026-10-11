@@ -1,0 +1,194 @@
+[
+  {
+    "id": "pub-1791750227426-9eyug",
+    "title": "Labyrinth of Shadows",
+    "description": "Top-down corridor labyrinth puzzle.",
+    "creatorName": "MazeMaster",
+    "creatorToken": "tok_1791750227426_wmkuslzs9u",
+    "templateId": "maze-exploration",
+    "engineVersion": "phaser-4.2.1",
+    "gamePlanSchemaVersion": "2.0",
+    "levelVersion": 1,
+    "publishedAt": "2026-10-11T20:23:47.426Z",
+    "updatedAt": "2026-10-11T20:23:47.426Z",
+    "playCount": 0,
+    "likes": 0,
+    "hasGhostReplay": false,
+    "playableScene": {
+      "schemaVersion": "1.0",
+      "id": "plan-maze-exploration-99",
+      "name": "Minotaur Labyrinth Maze",
+      "source": "gemini-vision",
+      "templateId": "maze-exploration",
+      "movementModel": "topdown",
+      "levelName": "Minotaur Labyrinth Maze",
+      "levelDescription": "True maze navigation with corridor dead ends, no gravity, and guaranteed path connectivity to the exit.",
+      "world": {
+        "width": 800,
+        "height": 480,
+        "gravity": 0,
+        "backgroundColor": "#070a13",
+        "theme": "forest",
+        "friction": 0.95,
+        "difficulty": "normal",
+        "ambientEffect": "none"
+      },
+      "player": {
+        "spawnX": 45,
+        "spawnY": 45,
+        "speed": 220,
+        "jumpPower": 0,
+        "size": 28
+      },
+      "platforms": [
+        {
+          "id": "m-north",
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 22,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-south",
+          "x": 0,
+          "y": 458,
+          "width": 800,
+          "height": 22,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-west",
+          "x": 0,
+          "y": 0,
+          "width": 22,
+          "height": 480,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-east",
+          "x": 778,
+          "y": 0,
+          "width": 22,
+          "height": 480,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-v1",
+          "x": 160,
+          "y": 22,
+          "width": 18,
+          "height": 326,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-v2",
+          "x": 320,
+          "y": 144,
+          "width": 18,
+          "height": 326,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-v3",
+          "x": 480,
+          "y": 22,
+          "width": 18,
+          "height": 326,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-v4",
+          "x": 640,
+          "y": 144,
+          "width": 18,
+          "height": 326,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-h1",
+          "x": 160,
+          "y": 168,
+          "width": 96,
+          "height": 18,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-h2",
+          "x": 320,
+          "y": 312,
+          "width": 96,
+          "height": 18,
+          "strokeColor": "#475569"
+        },
+        {
+          "id": "m-h3",
+          "x": 480,
+          "y": 168,
+          "width": 96,
+          "height": 18,
+          "strokeColor": "#475569"
+        }
+      ],
+      "hazards": [],
+      "trampolines": [],
+      "coins": [
+        {
+          "id": "bread-crumb-1",
+          "x": 240,
+          "y": 50,
+          "size": 24,
+          "value": 5
+        },
+        {
+          "id": "bread-crumb-2",
+          "x": 400,
+          "y": 216,
+          "size": 24,
+          "value": 5
+        },
+        {
+          "id": "bread-crumb-3",
+          "x": 560,
+          "y": 50,
+          "size": 24,
+          "value": 5
+        },
+        {
+          "id": "bread-crumb-4",
+          "x": 560,
+          "y": 360,
+          "size": 24,
+          "value": 5
+        }
+      ],
+      "enemies": [],
+      "switches": [],
+      "doors": [],
+      "goal": {
+        "id": "maze-exit",
+        "x": 740,
+        "y": 420,
+        "width": 34,
+        "height": 34
+      },
+      "objective": {
+        "type": "reach_goal",
+        "description": "Navigate the labyrinth paths and touch the exit gate"
+      },
+      "hudInstructions": "Arrow Keys / WASD: Navigate maze corridors to find the exit",
+      "diagnostics": {
+        "warnings": [],
+        "assumptions": [
+          "Generated from validated GameDesignPlan (plan-maze-exploration-99).",
+          "Template: maze-exploration.",
+          "Category: top-down-2d.",
+          "Movement Model: topdown."
+        ],
+        "strokeCount": 11,
+        "aiConfidence": 0.95
+      }
+    },
+    "visibility": "published"
+  }
+]

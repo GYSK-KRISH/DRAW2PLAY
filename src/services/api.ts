@@ -166,32 +166,97 @@ export async function transformLevelWithAi(
   };
 }
 
+export interface RequestOptions {
+  correlationId?: string;
+  signal?: AbortSignal;
+}
+
+export interface ApiErrorDetail {
+  code: string;
+  message: string;
+  category?: string;
+  isRetryable?: boolean;
+  canFallbackToHeuristic?: boolean;
+  details?: unknown;
+}
+
+export class ApiError extends Error {
+  public readonly code: string;
+  public readonly statusCode: number;
+  public readonly category?: string;
+  public readonly isRetryable: boolean;
+  public readonly canFallbackToHeuristic: boolean;
+  public readonly correlationId?: string;
+  public readonly details?: unknown;
+
+  constructor(options: {
+    message: string;
+    statusCode: number;
+    code?: string;
+    category?: string;
+    isRetryable?: boolean;
+    canFallbackToHeuristic?: boolean;
+    correlationId?: string;
+    details?: unknown;
+  }) {
+    super(options.message);
+    this.name = 'ApiError';
+    this.statusCode = options.statusCode;
+    this.code = options.code || `HTTP_${options.statusCode}`;
+    this.category = options.category;
+    this.isRetryable = options.isRetryable ?? false;
+    this.canFallbackToHeuristic = options.canFallbackToHeuristic ?? false;
+    this.correlationId = options.correlationId;
+    this.details = options.details;
+  }
+}
+
 export interface UploadReferenceResponse {
   success: boolean;
+  correlationId?: string;
   reference: import('../types/reference.js').ReferenceInput;
-  error?: string;
+  error?: string | ApiErrorDetail;
 }
 
 export async function uploadReferenceMedia(
   dataBase64: string,
   filename?: string,
   type: 'image' | 'video-frame' | 'sketch' = 'image',
-  userDescription?: string
+  userDescription?: string,
+  options?: RequestOptions
 ): Promise<UploadReferenceResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.correlationId) {
+    headers['X-Correlation-ID'] = options.correlationId;
+  }
+
   const response = await fetch(getApiUrl('/api/reference/upload'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    signal: options?.signal,
     body: JSON.stringify({
       dataBase64,
       filename,
       type,
       userDescription,
+      correlationId: options?.correlationId,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.error || `Upload failed with status ${response.status}`);
+    const errObj = typeof errorBody.error === 'object' ? errorBody.error : null;
+    const safeMsg = errObj?.message || errorBody.error || `Upload failed with status ${response.status}`;
+    throw new ApiError({
+      message: safeMsg,
+      statusCode: response.status,
+      code: errObj?.code || `HTTP_${response.status}`,
+      category: errObj?.category,
+      isRetryable: errObj?.isRetryable ?? false,
+      canFallbackToHeuristic: false,
+      correlationId: errorBody.correlationId || options?.correlationId,
+      details: errObj?.details,
+    });
   }
 
   return response.json();
@@ -199,28 +264,63 @@ export async function uploadReferenceMedia(
 
 export interface AnalyzeReferenceResponse {
   success: boolean;
-  source: 'gemini-vision' | 'mock-heuristic' | 'manual-input';
+  correlationId?: string;
+  source: 'gemini-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock';
+  provider?: {
+    id: string;
+    model: string;
+    isFallback: boolean;
+  };
   analysis: import('../types/reference.js').ReferenceAnalysis;
   notice?: string;
-  error?: string;
+  error?: string | ApiErrorDetail;
 }
 
 export async function analyzeReferenceVision(
   imageBase64: string,
-  userPrompt?: string
+  userPrompt?: string,
+  options?: RequestOptions & {
+    mode?: 'auto' | 'gemini-only' | 'heuristic-only';
+    allowFallback?: boolean;
+    referenceId?: string;
+  }
 ): Promise<AnalyzeReferenceResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.correlationId) {
+    headers['X-Correlation-ID'] = options.correlationId;
+  }
+
   const response = await fetch(getApiUrl('/api/reference/analyze'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    signal: options?.signal,
     body: JSON.stringify({
       imageBase64,
       userPrompt,
+      referenceId: options?.referenceId,
+      mode: options?.mode || 'auto',
+      allowFallback: options?.allowFallback ?? false,
+      correlationId: options?.correlationId,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.error || `Reference analysis failed with status ${response.status}`);
+    const errObj = typeof errorBody.error === 'object' ? errorBody.error : null;
+    const safeMsg =
+      errObj?.message || errorBody.error || `Reference analysis failed with status ${response.status}`;
+    throw new ApiError({
+      message: safeMsg,
+      statusCode: response.status,
+      code: errObj?.code || `HTTP_${response.status}`,
+      category: errObj?.category,
+      isRetryable:
+        errObj?.isRetryable ??
+        (response.status === 504 || response.status === 503 || response.status === 429),
+      canFallbackToHeuristic: errObj?.canFallbackToHeuristic ?? true,
+      correlationId: errorBody.correlationId || options?.correlationId,
+      details: errObj?.details,
+    });
   }
 
   return response.json();
@@ -228,65 +328,107 @@ export async function analyzeReferenceVision(
 
 export interface GeneratePlanResponse {
   success: boolean;
+  correlationId?: string;
   plan: import('../types/reference.js').GameGenerationPlan;
-  error?: string;
+  error?: string | ApiErrorDetail;
 }
 
 export async function requestGamePlan(
   referenceId: string,
   userPrompt: string,
   analysis: import('../types/reference.js').ReferenceAnalysis,
-  targetEngineOverride?: import('../types/reference.js').TargetEngine
+  targetEngineOverride?: import('../types/reference.js').TargetEngine,
+  templateIdOverride?: import('../types/plan.js').GameTemplateId,
+  options?: RequestOptions
 ): Promise<GeneratePlanResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.correlationId) {
+    headers['X-Correlation-ID'] = options.correlationId;
+  }
+
   const response = await fetch(getApiUrl('/api/reference/generate-plan'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    signal: options?.signal,
     body: JSON.stringify({
       referenceId,
       userPrompt,
       analysis,
       targetEngineOverride,
+      templateIdOverride,
+      correlationId: options?.correlationId,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.error || `Plan generation failed with status ${response.status}`);
+    const errObj = typeof errorBody.error === 'object' ? errorBody.error : null;
+    const safeMsg = errObj?.message || errorBody.error || `Plan generation failed with status ${response.status}`;
+    throw new ApiError({
+      message: safeMsg,
+      statusCode: response.status,
+      code: errObj?.code || `HTTP_${response.status}`,
+      category: errObj?.category,
+      isRetryable: false,
+      correlationId: errorBody.correlationId || options?.correlationId,
+    });
   }
 
   return response.json();
 }
 
-/**
- * Phase 6.2: Analyze multiple video frames with Gemini Vision.
- * Requires 2-5 base64 encoded frames. Server merges observations across frames.
- * Returns 503 with descriptive error if Gemini Vision is not configured.
- */
 export interface AnalyzeMultipleFramesResponse {
   success: boolean;
+  correlationId?: string;
   source: 'gemini-vision-multiframe';
+  provider?: {
+    id: string;
+    model: string;
+    isFallback: boolean;
+  };
   frameCount: number;
   analysis: import('../types/reference.js').ReferenceAnalysis;
   notice?: string;
-  error?: string;
+  error?: string | ApiErrorDetail;
 }
 
 export async function analyzeMultipleFrames(
   frameBase64s: string[],
-  userPrompt?: string
+  userPrompt?: string,
+  options?: RequestOptions
 ): Promise<AnalyzeMultipleFramesResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.correlationId) {
+    headers['X-Correlation-ID'] = options.correlationId;
+  }
+
   const response = await fetch(getApiUrl('/api/reference/analyze-frames'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
+    signal: options?.signal,
     body: JSON.stringify({
       frameBase64s,
       userPrompt,
+      correlationId: options?.correlationId,
     }),
   });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.error || `Multi-frame analysis failed with status ${response.status}`);
+    const errObj = typeof errorBody.error === 'object' ? errorBody.error : null;
+    const safeMsg =
+      errObj?.message || errorBody.error || `Multi-frame analysis failed with status ${response.status}`;
+    throw new ApiError({
+      message: safeMsg,
+      statusCode: response.status,
+      code: errObj?.code || `HTTP_${response.status}`,
+      category: errObj?.category,
+      isRetryable:
+        errObj?.isRetryable ??
+        (response.status === 504 || response.status === 503 || response.status === 429),
+      canFallbackToHeuristic: false,
+      correlationId: errorBody.correlationId || options?.correlationId,
+    });
   }
 
   return response.json();
