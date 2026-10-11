@@ -8,8 +8,30 @@ import {
 
 export const sandboxSessionRouter = Router();
 
+// In-memory rate limiting map (IP -> { count, windowStart })
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 120;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_REQUESTS_PER_WINDOW;
+}
+
+const SessionIdSchema = z
+  .string()
+  .min(4)
+  .max(100)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Session ID must be alphanumeric and may include hyphens or underscores');
+
 const ConnectSessionSchema = z.object({
-  sessionId: z.string().min(1).max(100).optional(),
+  sessionId: SessionIdSchema.optional(),
   world: SandboxWorldDataSchema.optional(),
   inventory: SandboxInventorySchema.optional(),
   playerPosition: z
@@ -23,8 +45,9 @@ const ConnectSessionSchema = z.object({
 });
 
 const SyncSessionSchema = z.object({
-  sessionId: z.string().min(1).max(100),
+  sessionId: SessionIdSchema,
   inventory: SandboxInventorySchema.optional(),
+  clientInventoryRevision: z.number().int().min(0).optional(),
   playerPosition: z
     .object({
       x: z.number(),
@@ -40,6 +63,12 @@ const SyncSessionSchema = z.object({
  * Connect a live browser sandbox scene to the backend session manager
  */
 sandboxSessionRouter.post('/connect', (req: Request, res: Response): void => {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  if (!checkRateLimit(clientIp)) {
+    res.status(429).json({ success: false, error: 'Too many requests. Please slow down.' });
+    return;
+  }
+
   const parsed = ConnectSessionSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: 'Invalid session connection payload', details: parsed.error.issues });
@@ -58,6 +87,7 @@ sandboxSessionRouter.post('/connect', (req: Request, res: Response): void => {
   res.json({
     success: true,
     sessionId: session.sessionId,
+    inventoryRevision: session.inventoryRevision,
     message: 'Sandbox session connected successfully to MCP bridge.',
   });
 });
@@ -66,19 +96,26 @@ sandboxSessionRouter.post('/connect', (req: Request, res: Response): void => {
  * Heartbeat and sync state from active browser scene, returning pending MCP actions
  */
 sandboxSessionRouter.post('/sync', (req: Request, res: Response): void => {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  if (!checkRateLimit(clientIp)) {
+    res.status(429).json({ success: false, error: 'Too many requests. Please slow down.' });
+    return;
+  }
+
   const parsed = SyncSessionSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: 'Invalid session sync payload', details: parsed.error.issues });
     return;
   }
 
-  const session = sandboxSessionManager.syncSession(parsed.data.sessionId, {
+  const syncResult = sandboxSessionManager.syncSession(parsed.data.sessionId, {
     inventory: parsed.data.inventory,
+    clientInventoryRevision: parsed.data.clientInventoryRevision,
     playerPosition: parsed.data.playerPosition,
     world: parsed.data.world,
   });
 
-  if (!session) {
+  if (!syncResult) {
     res.status(404).json({ success: false, error: 'Session not found or expired.' });
     return;
   }
@@ -88,8 +125,11 @@ sandboxSessionRouter.post('/sync', (req: Request, res: Response): void => {
 
   res.json({
     success: true,
-    sessionId: session.sessionId,
-    lastActiveAt: session.lastActiveAt,
+    sessionId: syncResult.session.sessionId,
+    lastActiveAt: syncResult.session.lastActiveAt,
+    inventoryRevision: syncResult.inventoryRevision,
+    authoritativeInventory: syncResult.authoritativeInventory,
+    inventoryWasUpdated: syncResult.inventoryWasUpdated,
     pendingActions,
   });
 });

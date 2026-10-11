@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "server": "tsx server/index.ts",
     "mcp": "tsx server/mcp/index.ts",
-    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts",
+    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts && tsx test/phase10.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

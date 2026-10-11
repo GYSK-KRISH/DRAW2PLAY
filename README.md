@@ -572,20 +572,34 @@ An external MCP server running in a local Node.js process cannot directly access
 | **`list_crafting_recipes`** | Read-Only | Lists supported recipes, required inputs, outputs, and whether each recipe is craftable right now. | `category?: 'all' \| 'basic' \| 'building' \| 'utility'` |
 | **`check_crafting_recipe`** | Read-Only | Validates recipe requirements, inventory stock, missing ingredients, and stack bounds without mutating state. | `recipeId: string`, `batches?: number` (1–100) |
 | **`craft_item`** | Mutating | Atomically deducts ingredients and grants output items via the authoritative recipe engine. | `recipeId: string`, `batches?: number`, `idempotencyKey?: string` |
-| **`mine_block`** | Mutating | Mines an adjacent solid tile into air, collecting the block into player inventory. Enforces reach (<250px). | `col: number` (0–63), `row: number` (0–35), `idempotencyKey?: string` |
-| **`place_block`** | Mutating | Places an owned placeable block onto an air tile. Enforces inventory count, reach, and player collision. | `col: number`, `row: number`, `blockType: PlaceableBlockType`, `idempotencyKey?: string` |
+| **`mine_block`** | Mutating | Mines an adjacent solid tile into air, collecting the block into player inventory. Enforces reach (220px / ~7 tiles). | `col: number` (0–63), `row: number` (0–35), `idempotencyKey?: string` |
+| **`place_block`** | Mutating | Places an owned placeable block onto an air tile. Enforces inventory count, reach (220px), and player collision. | `col: number`, `row: number`, `blockType: PlaceableBlockType`, `idempotencyKey?: string` |
 | **`get_save_status`** | Read-Only | Reports save schema version (`2.0`), persistence driver (`localStorage`), and validation state without exposing local filesystem paths. | `sessionId?: string` |
 
 ---
 
 ### Security, Validation & Defense-in-Depth
 
-- **Strict Zod Schemas:** Every tool input is validated before execution. Out-of-bounds coordinates (`col > 63`, `row > 35`), negative coordinates, non-integer numbers, and oversized batch counts are rejected at the protocol layer.
-- **Reach Limits:** Mining and placement operations enforce player reach (< 250px / ~7.8 tiles) from the player's active position. Remote attempts to mine blocks across the map are rejected.
-- **Collision Checking:** `place_block` checks the player's 22×32 bounding box and refuses to place blocks inside the player's body.
+- **Unified Reach Limit:** Mining and placement operations strictly enforce player reach with the shared constant `SANDBOX_PLAYER_REACH_PX = 220` (6.875 tiles, approx 7 tiles) from the player's active position. Enforced consistently across pointer interactions, Phaser scene execution, and remote MCP tools.
+- **Session Revisioning & Concurrency Protection:** Authoritative inventory is tracked with monotonic `inventoryRevision` counters. Stale browser sync heartbeats cannot overwrite remote MCP crafts, and concurrent mutations are safely rejected or cached.
+- **Session Lifecycle & Rate Limiting:** Sessions expire automatically after 15 minutes of inactivity (`SESSION_IDLE_TIMEOUT_MS`). The session bridge enforces IP rate limiting (120 req/min per IP), pending action queues are capped at 50, and idempotency caches are bounded to 100 entries.
+- **Collision Checking & Re-validation:** `place_block` checks the player's 22×32 bounding box and revalidates solid/air states immediately before execution, preventing placing blocks inside the player's body or over occupied tiles.
 - **Non-Placeable Filtering:** Items with `isPlaceable: false` (such as `stick`) are rejected by schema and cannot be placed as world tiles.
-- **Idempotency Protection:** All mutating operations accept an optional `idempotencyKey`. Retried requests return the cached result without double-deducting materials or awarding duplicate rewards.
+- **Corrupted Save Quarantine Protection:** When invalid or corrupted save data is detected, `sandboxStorage` automatically backs up the raw data to `draw2play_sandbox_save_corrupted_backup` rather than silently erasing user creations.
 - **Zero Filesystem / Shell Access:** The MCP server strictly forbids process execution, arbitrary fetch, or local file access. Persistence inspects isolated browser localStorage contracts only.
+
+---
+
+### Keyboard & Touch Controls
+
+- **Movement:** `A` / `D` or `◄` / `►` (and mobile virtual left/right buttons)
+- **Jump:** `W`, `Space`, or `▲` (and mobile virtual jump button)
+- **Mine Block:** Left-click mouse pointer (or mobile Mine touch mode)
+- **Place Block:** Right-click mouse pointer (or mobile Place touch mode)
+- **Hotbar Slot Selection:** Keys `1`, `2`, `3`, `4`
+- **Draw to Craft Modal:** Press `E`
+- **Crafting Workshop Modal:** Press `C`
+- **Modal Dismissal:** Press `ESC` (safely closes any open modal without discarding gameplay work)
 
 ---
 
@@ -626,8 +640,9 @@ To connect Draw2Play AI to Claude Desktop, add the following configuration to yo
 
 ### Verification Results
 
-- **Automated Tests:** **137 / 137 tests passing** across 11 test suites (`npm test`)
+- **Automated Tests:** **145 / 145 tests passing** across 12 test suites (`npm test`)
 - **MCP Integration Suite:** 17 / 17 tests passing (`test/mcp.test.ts`), covering discovery, read-only tools, session lifecycle, atomic crafting, reach bounds, collision avoidance, idempotency caching, and schema rejections.
+- **Phase 10 Hardening Suite:** 8 / 8 tests passing (`test/phase10.test.ts`), verifying bridge synchronization, revision conflict resolution, reach limits (220px), queue bounds (50), session idle pruning, save quarantine, and remote action revalidation.
 - **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint`)
 - **Build:** Clean TypeScript build & Vite bundle (`npm run build`)
 

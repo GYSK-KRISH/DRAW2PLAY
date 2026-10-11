@@ -9,6 +9,12 @@ export const DEFAULT_SANDBOX_COLS = 64;
 export const DEFAULT_SANDBOX_ROWS = 36;
 export const DEFAULT_SANDBOX_TILE_SIZE = 32;
 
+/**
+ * Authoritative player reach distance in pixels (220px / 32px ~= 6.875 tiles, approx 7 tiles).
+ * Enforced consistently in both browser pointer interactions and remote MCP operations.
+ */
+export const SANDBOX_PLAYER_REACH_PX = 220;
+
 export interface Rect {
   x: number;
   y: number;

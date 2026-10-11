@@ -1,7 +1,8 @@
 import type { SandboxSaveData } from '../types/sandbox.js';
 import { SandboxSaveDataSchema } from '../types/sandbox.js';
 
-const SANDBOX_STORAGE_KEY = 'draw2play_sandbox_save_v1';
+export const SANDBOX_STORAGE_KEY = 'draw2play_sandbox_save_v1';
+export const SANDBOX_CORRUPTED_BACKUP_KEY = 'draw2play_sandbox_save_corrupted_backup';
 
 let memoryFallbackStore: Record<string, string> = {};
 
@@ -43,8 +44,44 @@ function removeStorageItem(key: string): void {
 }
 
 /**
- * Saves sandbox world and player state with strict schema validation
+ * Sanitizes and bounds checks loaded save data to protect against out-of-bounds coordinates
+ * or invalid items without destroying valid world state.
  */
+export function sanitizeLoadedSave(save: SandboxSaveData): SandboxSaveData {
+  const sanitized = { ...save };
+  const worldWidth = sanitized.world.cols * sanitized.world.tileSize;
+  const worldHeight = sanitized.world.rows * sanitized.world.tileSize;
+
+  // 1. Clamp player coordinates if corrupted or out-of-bounds
+  let { x, y } = sanitized.player;
+  if (typeof x !== 'number' || isNaN(x)) {
+    x = 496;
+  } else {
+    x = Math.max(32, Math.min(worldWidth - 32, x));
+  }
+  if (typeof y !== 'number' || isNaN(y)) {
+    y = 464;
+  } else {
+    y = Math.max(32, Math.min(worldHeight - 32, y));
+  }
+  sanitized.player = {
+    ...sanitized.player,
+    x,
+    y,
+  };
+
+  // 2. Sanitize inventory stack limits
+  const cleanItems: Record<string, number> = {};
+  for (const [key, val] of Object.entries(sanitized.player.inventory.items)) {
+    if (typeof val === 'number' && !isNaN(val)) {
+      cleanItems[key] = Math.max(0, Math.min(999, Math.floor(val)));
+    }
+  }
+  sanitized.player.inventory.items = cleanItems;
+
+  return sanitized;
+}
+
 /**
  * Saves sandbox world and player state with strict schema validation
  */
@@ -75,7 +112,7 @@ export function migrateSandboxSave(raw: unknown): SandboxSaveData | null {
     if (data.schemaVersion === '2.0') {
       const directParse = SandboxSaveDataSchema.safeParse(data);
       if (directParse.success) {
-        return directParse.data;
+        return sanitizeLoadedSave(directParse.data);
       }
     }
 
@@ -97,14 +134,82 @@ export function migrateSandboxSave(raw: unknown): SandboxSaveData | null {
     }
 
     const migrated = SandboxSaveDataSchema.safeParse(data);
-    return migrated.success ? migrated.data : null;
+    return migrated.success ? sanitizeLoadedSave(migrated.data) : null;
   } catch {
     return null;
   }
 }
 
+export interface SandboxSaveStatus {
+  hasSave: boolean;
+  isValid: boolean;
+  isCorrupted: boolean;
+  hasQuarantinedBackup: boolean;
+  errorMessage?: string;
+  saveData?: SandboxSaveData;
+}
+
 /**
- * Loads and validates saved sandbox world state. Returns null if missing or corrupted.
+ * Returns detailed save status and diagnostics without altering storage
+ */
+export function getSandboxSaveStatus(): SandboxSaveStatus {
+  const raw = getStorageItem(SANDBOX_STORAGE_KEY);
+  const backup = getStorageItem(SANDBOX_CORRUPTED_BACKUP_KEY);
+
+  if (!raw) {
+    return {
+      hasSave: false,
+      isValid: false,
+      isCorrupted: false,
+      hasQuarantinedBackup: !!backup,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const parsedValid = SandboxSaveDataSchema.safeParse(parsed);
+    if (parsedValid.success) {
+      return {
+        hasSave: true,
+        isValid: true,
+        isCorrupted: false,
+        hasQuarantinedBackup: !!backup,
+        saveData: sanitizeLoadedSave(parsedValid.data),
+      };
+    }
+
+    const migrated = migrateSandboxSave(parsed);
+    if (migrated) {
+      return {
+        hasSave: true,
+        isValid: true,
+        isCorrupted: false,
+        hasQuarantinedBackup: !!backup,
+        saveData: migrated,
+      };
+    }
+
+    return {
+      hasSave: true,
+      isValid: false,
+      isCorrupted: true,
+      hasQuarantinedBackup: !!backup,
+      errorMessage: 'Save data contains invalid schema structures.',
+    };
+  } catch {
+    return {
+      hasSave: true,
+      isValid: false,
+      isCorrupted: true,
+      hasQuarantinedBackup: !!backup,
+      errorMessage: 'Save data contains unparseable JSON.',
+    };
+  }
+}
+
+/**
+ * Loads and validates saved sandbox world state.
+ * If data is corrupted, preserves a quarantine backup rather than destroying user data silently.
  */
 export function loadSandbox(): SandboxSaveData | null {
   const raw = getStorageItem(SANDBOX_STORAGE_KEY);
@@ -114,7 +219,7 @@ export function loadSandbox(): SandboxSaveData | null {
     const parsed = JSON.parse(raw);
     const result = SandboxSaveDataSchema.safeParse(parsed);
     if (result.success) {
-      return result.data;
+      return sanitizeLoadedSave(result.data);
     }
 
     // Try migration for legacy saves
@@ -124,10 +229,14 @@ export function loadSandbox(): SandboxSaveData | null {
       return migrated;
     }
 
-    console.warn('[SandboxStorage] Corrupted sandbox save detected:', result.error.format());
+    // Corrupted schema: quarantine original data before returning null
+    setStorageItem(SANDBOX_CORRUPTED_BACKUP_KEY, raw);
+    console.warn('[SandboxStorage] Corrupted sandbox save detected. Quarantined backup preserved.', result.error.format());
     return null;
   } catch (err) {
-    console.warn('[SandboxStorage] Failed to parse sandbox save JSON:', err);
+    // Malformed JSON: quarantine original data before returning null
+    setStorageItem(SANDBOX_CORRUPTED_BACKUP_KEY, raw);
+    console.warn('[SandboxStorage] Failed to parse sandbox save JSON. Quarantined backup preserved.', err);
     return null;
   }
 }
@@ -139,7 +248,7 @@ export const loadSandboxGame = loadSandbox;
  */
 export function validateSandboxSaveData(data: unknown): SandboxSaveData | null {
   const result = SandboxSaveDataSchema.safeParse(data);
-  return result.success ? result.data : null;
+  return result.success ? sanitizeLoadedSave(result.data) : null;
 }
 
 /**
@@ -158,7 +267,22 @@ export function clearSandboxSave(): void {
 
 export function clearSandboxGameForTest(): void {
   removeStorageItem(SANDBOX_STORAGE_KEY);
+  removeStorageItem(SANDBOX_CORRUPTED_BACKUP_KEY);
   memoryFallbackStore = {};
+}
+
+/**
+ * Retrieves quarantined backup content if present
+ */
+export function getQuarantinedBackup(): string | null {
+  return getStorageItem(SANDBOX_CORRUPTED_BACKUP_KEY);
+}
+
+/**
+ * Inject raw string into storage for corrupted data testing
+ */
+export function setStorageRawForTesting(key: string, value: string): void {
+  setStorageItem(key, value);
 }
 
 /**

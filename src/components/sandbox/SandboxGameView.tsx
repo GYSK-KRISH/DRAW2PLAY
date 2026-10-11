@@ -38,7 +38,7 @@ import {
 } from '../../game/sandbox/sandboxInventory.js';
 import { craftRecipe } from '../../game/sandbox/sandboxRecipes.js';
 import { generateDefaultSandboxWorld } from '../../game/sandbox/sandboxWorld.js';
-import { saveSandbox, loadSandbox, hasSandboxSave } from '../../services/sandboxStorage.js';
+import { saveSandbox, loadSandbox, hasSandboxSave, getSandboxSaveStatus } from '../../services/sandboxStorage.js';
 import { audioService } from '../../services/audioService.js';
 import { DrawToCraftModal } from './DrawToCraftModal.js';
 import { CraftingModal } from './CraftingModal.js';
@@ -66,6 +66,19 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
   const [isCraftingModalOpen, setIsCraftingModalOpen] = useState<boolean>(false);
   const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(hasSandboxSave());
   const [awardedSubmissionIds, setAwardedSubmissionIds] = useState<Set<string>>(() => new Set());
+
+  // Refs for stable session synchronization loop
+  const inventoryRef = useRef<SandboxInventory>(inventory);
+  const playerPositionRef = useRef(playerPosition);
+  const inventoryRevisionRef = useRef<number>(1);
+
+  useEffect(() => {
+    inventoryRef.current = inventory;
+  }, [inventory]);
+
+  useEffect(() => {
+    playerPositionRef.current = playerPosition;
+  }, [playerPosition]);
 
   // Show temporary action feedback toast
   const triggerFeedback = useCallback((msg: string) => {
@@ -96,6 +109,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
           worldData: initialWorld || generateDefaultSandboxWorld(),
           initialInventory: initialInv || createDefaultInventory(),
           onInventoryChange: (newInv: SandboxInventory) => {
+            inventoryRevisionRef.current++;
             setInventory({ ...newInv });
           },
           onActionFeedback: (msg: string) => {
@@ -131,16 +145,22 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
 
     const connectSession = async () => {
       try {
-        await fetch('/api/sandbox/session/connect', {
+        const res = await fetch('/api/sandbox/session/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId: currentSessionId,
             world: sceneRef.current?.worldData || generateDefaultSandboxWorld(),
-            inventory,
-            playerPosition,
+            inventory: inventoryRef.current,
+            playerPosition: playerPositionRef.current,
           }),
         });
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.inventoryRevision === 'number') {
+            inventoryRevisionRef.current = json.inventoryRevision;
+          }
+        }
       } catch {
         // Backend API offline or in testing, gracefully silent
       }
@@ -154,32 +174,63 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId: currentSessionId,
-            inventory,
-            playerPosition,
+            inventory: inventoryRef.current,
+            clientInventoryRevision: inventoryRevisionRef.current,
+            playerPosition: playerPositionRef.current,
             world: sceneRef.current?.worldData,
           }),
         });
         if (res.ok) {
           const data = (await res.json()) as {
+            inventoryRevision?: number;
+            authoritativeInventory?: SandboxInventory;
+            inventoryWasUpdated?: boolean;
             pendingActions?: Array<{
               type: 'craft' | 'mine' | 'place';
               data?: Record<string, any>;
             }>;
           };
+
+          // Synchronize authoritative inventory if server has a newer revision
+          if (
+            typeof data.inventoryRevision === 'number' &&
+            data.inventoryRevision > inventoryRevisionRef.current &&
+            data.authoritativeInventory
+          ) {
+            inventoryRevisionRef.current = data.inventoryRevision;
+            setInventory(data.authoritativeInventory);
+            if (sceneRef.current) sceneRef.current.setInventory(data.authoritativeInventory);
+          }
+
           if (data.pendingActions && Array.isArray(data.pendingActions) && data.pendingActions.length > 0) {
             for (const act of data.pendingActions) {
               if (act.type === 'craft' && act.data?.inventory) {
                 setInventory(act.data.inventory);
                 if (sceneRef.current) sceneRef.current.setInventory(act.data.inventory);
+                if (typeof act.data.inventoryRevision === 'number') {
+                  inventoryRevisionRef.current = act.data.inventoryRevision;
+                }
                 triggerFeedback(`🤖 MCP AI: Crafted ${act.data.craftedCount}x ${act.data.outputDisplayName || act.data.outputItem}`);
               } else if (act.type === 'mine' && act.data) {
                 if (sceneRef.current) {
-                  sceneRef.current.executeRemoteMine(act.data.col, act.data.row);
+                  sceneRef.current.executeRemoteMine(act.data.col, act.data.row, act.data.inventory);
+                }
+                if (act.data.inventory) {
+                  setInventory(act.data.inventory);
+                }
+                if (typeof act.data.inventoryRevision === 'number') {
+                  inventoryRevisionRef.current = act.data.inventoryRevision;
                 }
                 triggerFeedback(`🤖 MCP AI: Mined ${act.data.minedDisplayName || act.data.minedTile} at (${act.data.col}, ${act.data.row})`);
               } else if (act.type === 'place' && act.data) {
                 if (sceneRef.current) {
-                  sceneRef.current.executeRemotePlace(act.data.col, act.data.row, act.data.placedBlock);
+                  sceneRef.current.executeRemotePlace(act.data.col, act.data.row, act.data.placedBlock, act.data.inventory);
+                }
+                if (act.data.inventory) {
+                  setInventory(act.data.inventory);
+                }
+                if (typeof act.data.inventoryRevision === 'number') {
+                  inventoryRevisionRef.current = act.data.inventoryRevision;
                 }
                 triggerFeedback(`🤖 MCP AI: Placed ${act.data.placedDisplayName || act.data.placedBlock} at (${act.data.col}, ${act.data.row})`);
               }
@@ -192,7 +243,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [inventory, playerPosition, triggerFeedback]);
+  }, [triggerFeedback]);
 
   // Audio Toggle
   const handleToggleMute = () => {
@@ -263,9 +314,14 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     }
   };
 
-  // Load Saved World
+  // Load Saved World with Corruption and Recovery Protection
   const handleLoadWorld = () => {
     audioService.playClick();
+    const saveStatus = getSandboxSaveStatus();
+    if (saveStatus.isCorrupted) {
+      triggerFeedback('⚠️ Corrupted save detected. Quarantined backup preserved in storage.');
+      return;
+    }
     const saved = loadSandbox();
     if (!saved) {
       triggerFeedback('No saved sandbox found.');
@@ -274,6 +330,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
 
     initGame(saved.world, saved.player.inventory);
     setInventory(saved.player.inventory);
+    inventoryRevisionRef.current++;
     triggerFeedback('Loaded saved sandbox world!');
   };
 
@@ -342,17 +399,38 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     triggerFeedback(`Equipped ${TILE_DEFINITIONS[itemType].displayName} to hotbar slot ${slotIdx + 1}`);
   };
 
-  // Keyboard shortcut 'C' toggles crafting modal when not in another modal or text input
+  // Keyboard shortcuts:
+  // - Escape: safely closes modals without losing game state
+  // - C / c: toggles crafting recipes modal
+  // - E / e: opens Draw to Craft modal
+  // - 1, 2, 3, 4: selects hotbar slot
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'Escape') {
+        if (isCraftModalOpen) {
+          setIsCraftModalOpen(false);
+          e.preventDefault();
+        } else if (isCraftingModalOpen) {
+          setIsCraftingModalOpen(false);
+          e.preventDefault();
+        }
+        return;
+      }
+
       if ((e.key === 'c' || e.key === 'C') && !isCraftModalOpen) {
         setIsCraftingModalOpen((prev) => !prev);
+      } else if ((e.key === 'e' || e.key === 'E') && !isCraftModalOpen && !isCraftingModalOpen) {
+        setIsCraftModalOpen(true);
+      } else if (['1', '2', '3', '4'].includes(e.key) && !isCraftModalOpen && !isCraftingModalOpen) {
+        const slotIdx = parseInt(e.key, 10) - 1;
+        handleSelectSlot(slotIdx);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCraftModalOpen]);
+  }, [isCraftModalOpen, isCraftingModalOpen]);
 
   const handleCraftSubmission = (_submission: CraftSubmission) => {
     // Blueprint registered in crafting queue
@@ -472,14 +550,16 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
         )}
 
         {/* Controls Overlay Guide */}
-        <div className="absolute top-4 right-4 z-10 hidden lg:flex flex-col gap-1 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 backdrop-blur-sm text-[11px] text-slate-300 font-mono shadow-md">
+        <div className="absolute top-4 right-4 z-10 hidden lg:flex flex-col gap-1 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 backdrop-blur-sm text-[11px] text-slate-300 font-mono shadow-md select-none">
           <span className="text-cyan-400 font-bold mb-0.5">Controls:</span>
           <span>A / D or ◄ / ► : Move</span>
           <span>W / Space / ▲ : Jump</span>
           <span>Left-Click : Mine block</span>
           <span>Right-Click : Place block</span>
           <span>1, 2, 3, 4 : Select Hotbar</span>
+          <span>E : Draw to Craft</span>
           <span>C : Crafting Workshop</span>
+          <span>ESC : Close Modals</span>
         </div>
 
         {/* 3. FLOATING HOTBAR (Bottom Center) */}

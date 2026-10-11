@@ -14,6 +14,8 @@ import {
   generateDefaultSandboxWorld,
   mineBlock,
   placeBlock,
+  SANDBOX_PLAYER_REACH_PX,
+  rectanglesIntersect,
   type Rect,
 } from '../sandbox/sandboxWorld.js';
 import {
@@ -107,15 +109,60 @@ export class SandboxScene extends Phaser.Scene {
     this.inventory = inv;
   }
 
-  public executeRemoteMine(col: number, row: number) {
+  public executeRemoteMine(col: number, row: number, authoritativeInventory?: SandboxInventory) {
+    if (col < 0 || col >= this.worldData.cols || row < 0 || row >= this.worldData.rows) return;
+    const currentTile = this.worldData.tiles[row]?.[col];
+    if (!currentTile || currentTile === 'air') return;
+
     const tileSize = this.worldData.tileSize;
     const tileCenterX = col * tileSize + tileSize / 2;
     const tileCenterY = row * tileSize + tileSize / 2;
-    this.performMine(col, row, tileCenterX, tileCenterY);
+
+    // 1. Destroy visual & physics sprite
+    const key = `${col},${row}`;
+    const sprite = this.tileSpriteMap.get(key);
+    if (sprite) {
+      sprite.destroy();
+      this.tileSpriteMap.delete(key);
+    }
+
+    // 2. Play particle burst & sound
+    if (this.debrisEmitter) {
+      this.debrisEmitter.explode(8, tileCenterX, tileCenterY);
+    }
+    audioService.playMine();
+
+    // 3. Update world data
+    this.worldData.tiles[row][col] = 'air';
+
+    // 4. Update authoritative inventory if provided
+    if (authoritativeInventory) {
+      this.inventory = { ...authoritativeInventory };
+      this.onInventoryChange?.(this.inventory);
+    }
   }
 
-  public executeRemotePlace(col: number, row: number, blockType: PlaceableBlockType) {
+  public executeRemotePlace(col: number, row: number, blockType: PlaceableBlockType, authoritativeInventory?: SandboxInventory) {
+    if (col < 0 || col >= this.worldData.cols || row < 0 || row >= this.worldData.rows) return;
     if (!isItemPlaceable(blockType)) return;
+    if (this.worldData.tiles[row]?.[col] !== 'air') return;
+
+    // Re-verify player collision
+    const playerRect: Rect = {
+      x: this.player.x - 11,
+      y: this.player.y - 16,
+      width: 22,
+      height: 32,
+    };
+    const tileSize = this.worldData.tileSize;
+    const blockRect: Rect = {
+      x: col * tileSize,
+      y: row * tileSize,
+      width: tileSize,
+      height: tileSize,
+    };
+    if (rectanglesIntersect(playerRect, blockRect)) return;
+
     const key = `${col},${row}`;
     const existing = this.tileSpriteMap.get(key);
     if (existing) {
@@ -125,6 +172,11 @@ export class SandboxScene extends Phaser.Scene {
     this.worldData.tiles[row][col] = blockType;
     this.createTileGameObject(col, row, blockType);
     audioService.playPlace();
+
+    if (authoritativeInventory) {
+      this.inventory = { ...authoritativeInventory };
+      this.onInventoryChange?.(this.inventory);
+    }
   }
 
   preload() {
@@ -279,7 +331,7 @@ export class SandboxScene extends Phaser.Scene {
         const tileCenterX = hoverCol * tileSize + tileSize / 2;
         const tileCenterY = hoverRow * tileSize + tileSize / 2;
         const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, tileCenterX, tileCenterY);
-        const inReach = dist <= 220;
+        const inReach = dist <= SANDBOX_PLAYER_REACH_PX;
 
         const tile = this.worldData.tiles[hoverRow][hoverCol];
         if (!inReach) {
@@ -330,7 +382,7 @@ export class SandboxScene extends Phaser.Scene {
     const tileCenterY = row * tileSize + tileSize / 2;
     const dist = Phaser.Math.Distance.Between(playerCenterX, playerCenterY, tileCenterX, tileCenterY);
 
-    if (dist > 220) {
+    if (dist > SANDBOX_PLAYER_REACH_PX) {
       this.onActionFeedback?.('Too far to reach! Move closer.');
       return;
     }

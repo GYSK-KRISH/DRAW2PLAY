@@ -12,6 +12,7 @@ import {
   placeBlock,
   canPlaceBlock,
   generateDefaultSandboxWorld,
+  SANDBOX_PLAYER_REACH_PX,
   type Rect,
 } from '../../../src/game/sandbox/sandboxWorld.js';
 import {
@@ -22,6 +23,10 @@ import {
 import {
   craftRecipe,
 } from '../../../src/game/sandbox/sandboxRecipes.js';
+
+export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes of inactivity
+export const MAX_PENDING_ACTIONS = 50;
+export const MAX_IDEMPOTENCY_CACHE_SIZE = 100;
 
 export interface PlayerCoordinates {
   x: number;
@@ -44,6 +49,7 @@ export interface SandboxSession {
   clientType: 'browser' | 'test' | 'standalone';
   world: SandboxWorldData;
   inventory: SandboxInventory;
+  inventoryRevision: number;
   playerPosition?: PlayerCoordinates;
   pendingActions: SessionPendingAction[];
   idempotencyCache: Map<string, unknown>;
@@ -57,6 +63,35 @@ class SandboxSessionManager {
   private sessions = new Map<string, SandboxSession>();
   private activeSessionId: string | null = null;
 
+  private recordPendingAction(
+    session: SandboxSession,
+    type: 'craft' | 'mine' | 'place',
+    data: Record<string, unknown>
+  ): void {
+    while (session.pendingActions.length >= MAX_PENDING_ACTIONS) {
+      session.pendingActions.shift();
+    }
+    session.pendingActions.push({
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      type,
+      data,
+      timestamp: Date.now(),
+    });
+  }
+
+  private recordIdempotency(session: SandboxSession, key?: string, result?: unknown): void {
+    if (!key || result === undefined) return;
+    while (session.idempotencyCache.size >= MAX_IDEMPOTENCY_CACHE_SIZE) {
+      const firstKey = session.idempotencyCache.keys().next().value;
+      if (firstKey) {
+        session.idempotencyCache.delete(firstKey);
+      } else {
+        break;
+      }
+    }
+    session.idempotencyCache.set(key, result);
+  }
+
   /**
    * Registers a new or refreshed sandbox session (e.g. from browser or automated test)
    */
@@ -67,6 +102,16 @@ class SandboxSessionManager {
     inventory?: SandboxInventory;
     playerPosition?: PlayerCoordinates;
   }): SandboxSession {
+    const existing = this.sessions.get(params.sessionId);
+    if (existing) {
+      existing.lastActiveAt = Date.now();
+      existing.clientType = params.clientType ?? existing.clientType;
+      if (params.world) existing.world = params.world;
+      if (params.playerPosition) existing.playerPosition = params.playerPosition;
+      this.activeSessionId = params.sessionId;
+      return existing;
+    }
+
     const session: SandboxSession = {
       sessionId: params.sessionId,
       createdAt: Date.now(),
@@ -74,6 +119,7 @@ class SandboxSessionManager {
       clientType: params.clientType ?? 'browser',
       world: params.world ?? generateDefaultSandboxWorld(),
       inventory: params.inventory ?? createDefaultInventory(),
+      inventoryRevision: 1,
       playerPosition: params.playerPosition,
       pendingActions: [],
       idempotencyCache: new Map(),
@@ -85,39 +131,82 @@ class SandboxSessionManager {
   }
 
   /**
-   * Heartbeat & sync from connected browser client
+   * Heartbeat & sync from connected browser client.
+   * Protects authoritative inventory against stale client overwrite.
    */
   public syncSession(
     sessionId: string,
     update: {
       inventory?: SandboxInventory;
+      clientInventoryRevision?: number;
       playerPosition?: PlayerCoordinates;
       world?: SandboxWorldData;
     }
-  ): SandboxSession | null {
-    const session = this.sessions.get(sessionId);
+  ): {
+    session: SandboxSession;
+    authoritativeInventory: SandboxInventory;
+    inventoryRevision: number;
+    inventoryWasUpdated: boolean;
+  } | null {
+    const session = this.getSession(sessionId);
     if (!session) return null;
 
     session.lastActiveAt = Date.now();
-    if (update.inventory) session.inventory = update.inventory;
+    let inventoryWasUpdated = false;
+
+    if (update.inventory) {
+      // If client revision is older than server revision, do NOT overwrite with stale client inventory
+      if (
+        update.clientInventoryRevision !== undefined &&
+        update.clientInventoryRevision < session.inventoryRevision
+      ) {
+        inventoryWasUpdated = false;
+      } else {
+        session.inventory = update.inventory;
+        session.inventoryRevision++;
+        inventoryWasUpdated = true;
+      }
+    }
+
     if (update.playerPosition) session.playerPosition = update.playerPosition;
     if (update.world) session.world = update.world;
 
     this.activeSessionId = sessionId;
-    return session;
+    return {
+      session,
+      authoritativeInventory: session.inventory,
+      inventoryRevision: session.inventoryRevision,
+      inventoryWasUpdated,
+    };
   }
 
   /**
-   * Fetches active session or explicitly specified session
+   * Fetches active session or explicitly specified session with idle expiration
    */
   public getSession(sessionId?: string): SandboxSession | null {
+    const now = Date.now();
+
     if (sessionId) {
-      return this.sessions.get(sessionId) ?? null;
+      const session = this.sessions.get(sessionId);
+      if (!session) return null;
+      if (now - session.lastActiveAt > SESSION_IDLE_TIMEOUT_MS) {
+        this.sessions.delete(sessionId);
+        if (this.activeSessionId === sessionId) {
+          this.activeSessionId = null;
+        }
+        return null;
+      }
+      return session;
     }
+
     if (this.activeSessionId) {
       const active = this.sessions.get(this.activeSessionId);
       if (active) {
-        // Consider sessions stale if inactive for over 30 minutes in production
+        if (now - active.lastActiveAt > SESSION_IDLE_TIMEOUT_MS) {
+          this.sessions.delete(this.activeSessionId);
+          this.activeSessionId = null;
+          return null;
+        }
         return active;
       }
     }
@@ -129,10 +218,28 @@ class SandboxSessionManager {
   }
 
   /**
+   * Cleans up expired inactive sessions
+   */
+  public cleanupStaleSessions(): number {
+    const now = Date.now();
+    let purged = 0;
+    for (const [id, session] of this.sessions.entries()) {
+      if (now - session.lastActiveAt > SESSION_IDLE_TIMEOUT_MS) {
+        this.sessions.delete(id);
+        if (this.activeSessionId === id) {
+          this.activeSessionId = null;
+        }
+        purged++;
+      }
+    }
+    return purged;
+  }
+
+  /**
    * Retrieves and clears queued pending actions for browser scene playback
    */
   public pollPendingActions(sessionId: string): SessionPendingAction[] {
-    const session = this.sessions.get(sessionId);
+    const session = this.getSession(sessionId);
     if (!session) return [];
     const actions = [...session.pendingActions];
     session.pendingActions = [];
@@ -153,6 +260,7 @@ class SandboxSessionManager {
     outputItem?: string;
     craftedCount?: number;
     inventory?: SandboxInventory;
+    inventoryRevision?: number;
     reason?: string;
     cached?: boolean;
   } {
@@ -179,6 +287,7 @@ class SandboxSessionManager {
     }
 
     session.inventory = craftResult.inventory;
+    session.inventoryRevision++;
     session.lastActiveAt = Date.now();
 
     const outputItem = craftResult.recipe.output.itemId;
@@ -188,18 +297,11 @@ class SandboxSessionManager {
       outputItem,
       craftedCount: craftResult.craftedCount ?? 0,
       inventory: session.inventory,
+      inventoryRevision: session.inventoryRevision,
     };
 
-    if (idempotencyKey) {
-      session.idempotencyCache.set(idempotencyKey, result);
-    }
-
-    session.pendingActions.push({
-      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type: 'craft',
-      data: result,
-      timestamp: Date.now(),
-    });
+    this.recordIdempotency(session, idempotencyKey, result);
+    this.recordPendingAction(session, 'craft', result);
 
     return result;
   }
@@ -218,6 +320,7 @@ class SandboxSessionManager {
     row?: number;
     minedTile?: string;
     inventory?: SandboxInventory;
+    inventoryRevision?: number;
     reason?: string;
     cached?: boolean;
   } {
@@ -258,10 +361,10 @@ class SandboxSessionManager {
         session.playerPosition.x - tileCenterX,
         session.playerPosition.y - tileCenterY
       );
-      if (dist > 250) {
+      if (dist > SANDBOX_PLAYER_REACH_PX) {
         return {
           success: false,
-          reason: `Target block is too far from player (${Math.round(dist)}px > 250px reach limit).`,
+          reason: `Target block is too far from player (${Math.round(dist)}px > ${SANDBOX_PLAYER_REACH_PX}px reach limit).`,
         };
       }
     }
@@ -276,6 +379,7 @@ class SandboxSessionManager {
 
     // Add mined block to inventory
     session.inventory = addInventoryItem(session.inventory, mined.minedTile, 1);
+    session.inventoryRevision++;
     session.lastActiveAt = Date.now();
 
     const result = {
@@ -284,18 +388,11 @@ class SandboxSessionManager {
       row,
       minedTile: mined.minedTile,
       inventory: session.inventory,
+      inventoryRevision: session.inventoryRevision,
     };
 
-    if (idempotencyKey) {
-      session.idempotencyCache.set(idempotencyKey, result);
-    }
-
-    session.pendingActions.push({
-      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type: 'mine',
-      data: result,
-      timestamp: Date.now(),
-    });
+    this.recordIdempotency(session, idempotencyKey, result);
+    this.recordPendingAction(session, 'mine', result);
 
     return result;
   }
@@ -315,6 +412,7 @@ class SandboxSessionManager {
     row?: number;
     placedBlock?: string;
     inventory?: SandboxInventory;
+    inventoryRevision?: number;
     reason?: string;
     cached?: boolean;
   } {
@@ -364,10 +462,10 @@ class SandboxSessionManager {
         session.playerPosition.x - tileCenterX,
         session.playerPosition.y - tileCenterY
       );
-      if (dist > 250) {
+      if (dist > SANDBOX_PLAYER_REACH_PX) {
         return {
           success: false,
-          reason: `Placement target is out of reach (${Math.round(dist)}px > 250px limit).`,
+          reason: `Placement target is out of reach (${Math.round(dist)}px > ${SANDBOX_PLAYER_REACH_PX}px limit).`,
         };
       }
     }
@@ -393,6 +491,7 @@ class SandboxSessionManager {
     if (consumed.success) {
       session.inventory = consumed.inventory;
     }
+    session.inventoryRevision++;
     session.lastActiveAt = Date.now();
 
     const result = {
@@ -401,18 +500,11 @@ class SandboxSessionManager {
       row,
       placedBlock: blockType,
       inventory: session.inventory,
+      inventoryRevision: session.inventoryRevision,
     };
 
-    if (idempotencyKey) {
-      session.idempotencyCache.set(idempotencyKey, result);
-    }
-
-    session.pendingActions.push({
-      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type: 'place',
-      data: result,
-      timestamp: Date.now(),
-    });
+    this.recordIdempotency(session, idempotencyKey, result);
+    this.recordPendingAction(session, 'place', result);
 
     return result;
   }
