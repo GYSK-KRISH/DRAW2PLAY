@@ -8,9 +8,10 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
+    "start": "tsx server/index.ts",
     "server": "tsx server/index.ts",
     "mcp": "tsx server/mcp/index.ts",
-    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts && tsx test/phase10.test.ts",
+    "test": "tsx test/sanity.test.ts && tsx test/sketch.test.ts && tsx test/scene.test.ts && tsx test/storage.test.ts && tsx test/transformation.test.ts && tsx test/reference.test.ts && tsx test/provider.test.ts && tsx test/sandbox.test.ts && tsx test/craft.test.ts && tsx test/craftingProgression.test.ts && tsx test/mcp.test.ts && tsx test/phase10.test.ts && tsx test/phase11.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -26,6 +27,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -37,7 +39,6 @@
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.6",
     "oxlint": "^1.81.0",
-    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

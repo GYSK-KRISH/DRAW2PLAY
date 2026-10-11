@@ -43,6 +43,8 @@ import { audioService } from '../../services/audioService.js';
 import { DrawToCraftModal } from './DrawToCraftModal.js';
 import { CraftingModal } from './CraftingModal.js';
 
+import { getApiUrl } from '../../services/api.js';
+
 interface SandboxGameViewProps {
   onBackToStudio: () => void;
 }
@@ -145,7 +147,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
 
     const connectSession = async () => {
       try {
-        const res = await fetch('/api/sandbox/session/connect', {
+        const res = await fetch(getApiUrl('/api/sandbox/session/connect'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -169,7 +171,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/sandbox/session/sync', {
+        const res = await fetch(getApiUrl('/api/sandbox/session/sync'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -180,6 +182,13 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
             world: sceneRef.current?.worldData,
           }),
         });
+
+        if (res.status === 404) {
+          // Backend restarted or session expired; re-register session automatically
+          await connectSession();
+          return;
+        }
+
         if (res.ok) {
           const data = (await res.json()) as {
             inventoryRevision?: number;

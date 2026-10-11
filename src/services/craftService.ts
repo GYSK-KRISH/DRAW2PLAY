@@ -9,6 +9,7 @@ import {
   CRAFTABLE_ITEM_ALLOWLIST,
   CRAFTABLE_ITEMS_CATALOGUE,
 } from '../types/sandbox.js';
+import { getApiUrl } from './api.js';
 
 export interface CraftCatalogueResponse {
   success: boolean;
@@ -21,7 +22,7 @@ export interface CraftCatalogueResponse {
  */
 export async function fetchCraftCatalogue(): Promise<CraftCatalogueResponse> {
   try {
-    const res = await fetch('/api/ai/craft-catalogue');
+    const res = await fetch(getApiUrl('/api/ai/craft-catalogue'));
     if (res.ok) {
       const data = await res.json();
       if (data.success && data.catalogue) {
@@ -47,7 +48,7 @@ export async function requestSketchRecognition(
   request: RecognizeCraftRequest
 ): Promise<RecognizeCraftResponse> {
   try {
-    const res = await fetch('/api/ai/recognize-craft-sketch', {
+    const res = await fetch(getApiUrl('/api/ai/recognize-craft-sketch'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

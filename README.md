@@ -638,14 +638,168 @@ To connect Draw2Play AI to Claude Desktop, add the following configuration to yo
 
 ---
 
+---
+
 ### Verification Results
 
-- **Automated Tests:** **145 / 145 tests passing** across 12 test suites (`npm test`)
+- **Automated Tests:** **153 / 153 tests passing** across 13 test suites (`npm test`)
 - **MCP Integration Suite:** 17 / 17 tests passing (`test/mcp.test.ts`), covering discovery, read-only tools, session lifecycle, atomic crafting, reach bounds, collision avoidance, idempotency caching, and schema rejections.
 - **Phase 10 Hardening Suite:** 8 / 8 tests passing (`test/phase10.test.ts`), verifying bridge synchronization, revision conflict resolution, reach limits (220px), queue bounds (50), session idle pruning, save quarantine, and remote action revalidation.
-- **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint`)
+- **Phase 11 Release Engineering Suite:** 8 / 8 tests passing (`test/phase11.test.ts`), verifying health endpoint, static asset serving, SPA routing fallback, unknown route isolation, environment validation, API URL resolution, Dockerfile/compose specs, and graceful shutdown.
+- **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint` across 97 files)
 - **Build:** Clean TypeScript build & Vite bundle (`npm run build`)
 
+---
 
+## 17. Production Deployment, Docker & Release Engineering (Phase 11)
 
+Draw2Play AI is engineered for reproducible local startup and reliable containerized cloud deployment (Cloud Run, Render, Railway, AWS ECS, or self-hosted Docker).
 
+### Deployment Architecture
+
+Draw2Play AI utilizes a **Unified Single-Service Container** architecture:
+- In production, the Node.js Express backend serves the pre-compiled, optimized Vite frontend assets (`dist/`) alongside all `/api/*` REST endpoints on a single configurable port (default `3001`).
+- SPA client-side routes (e.g. `/`, `/sandbox`, `/studio`) gracefully fall back to `dist/index.html`.
+- Unknown `/api/*` routes are cleanly caught and return structured JSON 404 errors without falling back to HTML.
+- **Why this architecture fits best:** It eliminates CORS complexities, prevents cross-origin cookie/session issues, halves infrastructure cost and maintenance, and ensures that the browser client and server-side AI/session bridge routes always share the same origin without complex reverse-proxy orchestration.
+- **Optional Split-Domain Hosting:** If desired, the frontend and backend can be hosted on separate origins. Setting `VITE_API_BASE_URL` on the frontend and configuring `CORS_ORIGIN` on the backend enables secure, authenticated cross-origin communication.
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                    Docker Container                       │
+│                                                           │
+│  Express Server (Port 3001)                               │
+│  ├── /api/health                   -> Health probe        │
+│  ├── /api/ai/*                     -> Gemini Vision & AI  │
+│  ├── /api/reference/*              -> Media reference     │
+│  ├── /api/sandbox/session/*        -> MCP Session Bridge  │
+│  ├── /assets/*                     -> Static Vite assets  │
+│  └── /*                            -> SPA index.html      │
+└───────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Environment Variables & Configuration
+
+Configuration is strictly validated at startup using Zod in `server/config.ts`:
+
+| Variable | Type | Default | Required? | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `PORT` | Integer (1–65535) | `3001` | No | Production HTTP listening port. |
+| `CORS_ORIGIN` | String | `*` | No | Allowed CORS origins (`*` or comma-separated origins, e.g. `https://draw2play.app`). |
+| `BODY_LIMIT` | String | `25mb` | No | Maximum JSON/form body payload size for sketch/reference uploads. |
+| `GEMINI_API_KEY` | String | `""` | Optional | Google Gemini API key. If omitted, safe deterministic fallback providers are used. |
+| `GEMINI_MODEL` | String | `gemini-3.8-flash` | No | Multimodal Gemini Vision model name. |
+| `VITE_API_BASE_URL` | String | `""` | No | Client build-time variable for split-domain hosting (leave blank for single-service). |
+
+> **Security Note:** `GEMINI_API_KEY` is strictly a server-side secret. It is **never** embedded into `VITE_*` environment variables or client-side bundles.
+
+---
+
+### Local Production Run (without Docker)
+
+1. **Install dependencies:**
+   ```bash
+   npm ci
+   ```
+2. **Build frontend assets:**
+   ```bash
+   npm run build
+   ```
+3. **Start the production server:**
+   ```bash
+   npm start
+   ```
+4. Access the application at `http://localhost:3001`.
+
+---
+
+### Docker Deployment
+
+Draw2Play AI provides a production-hardened multi-stage `Dockerfile` and `compose.yaml`:
+
+- **Base Image:** `node:22-alpine` for minimal attack surface and lightweight container footprint (~180 MB).
+- **Security:** Runs as the unprivileged non-root user `USER node`.
+- **Health Check:** Automated health check testing `GET /api/health` every 30 seconds.
+- **Lifecycle:** Gracefully traps `SIGTERM` and `SIGINT` to cleanly close HTTP connections.
+
+#### Building and Running with Docker:
+
+```bash
+# 1. Build the production image
+docker build -t draw2play .
+
+# 2. Run the container (with optional API key)
+docker run -p 3001:3001 -e GEMINI_API_KEY="your-gemini-key" draw2play
+```
+
+#### Running with Docker Compose:
+
+```bash
+# Build and run in detached mode
+docker compose up -d --build
+
+# Inspect container health
+docker compose ps
+
+# View production logs
+docker compose logs -f
+```
+
+---
+
+### Health Check Endpoint
+
+`GET /api/health` provides operational observability without leaking sensitive environment information:
+
+```json
+{
+  "status": "ok",
+  "project": "Draw2Play AI",
+  "geminiConfigured": false,
+  "providers": ["gemini-vision", "local-vector", "mock-fallback"]
+}
+```
+
+---
+
+### Persistence & Storage Boundaries
+
+Draw2Play AI maintains strict persistence boundaries:
+
+| Data Type | Storage Location | Survives Container Restart? | Survives Browser Reload? |
+| :--- | :--- | :--- | :--- |
+| **Saved Level Creations** | Browser `localStorage` | Yes | Yes |
+| **Sandbox World & Inventory** | Browser `localStorage` | Yes | Yes |
+| **Corrupted Save Backups** | Browser `localStorage` | Yes | Yes |
+| **Active MCP Session Bridge** | Server RAM | No (Auto-reconnects) | No (Re-registered on view) |
+| **Pending Remote Action Queue**| Server RAM | No | No |
+| **Action Idempotency Cache** | Server RAM | No | No |
+
+- **Self-Healing Bridge:** If the backend container restarts or is replaced, the browser client automatically detects the missing session (`404`) on the next sync heartbeat and cleanly re-registers without interrupting the player.
+- **No Database Needed:** User creations remain sovereign to the player's device, eliminating cloud database overhead and user privacy concerns.
+
+---
+
+### Public Demo Walkthrough (Zero-Key Scenario)
+
+Draw2Play AI is fully functional even **without a Gemini API key**:
+
+1. **Open Studio:** Navigate to `http://localhost:3001` (or hosted URL).
+2. **Sketch Level:** Draw green ground terrain, a gold coin, a cyan trampoline, a red hazard, and a purple goal flag.
+3. **Analyze:** Click **Instant Local Physics** for instant vector translation, or click **Analyze Level** (if no API key is configured, the server transparently uses the deterministic fallback).
+4. **Play:** Complete the level with arcade physics, procedural sound effects, and celebratory particle confetti.
+5. **Sandbox Mode:** Navigate to Sandbox Mode (`/sandbox`). Mine stone and wood, craft wooden planks and workbenches, and sketch tools in the **Draw to Craft** canvas!
+
+---
+
+### Troubleshooting & Operational Runbook
+
+| Symptom | Cause | Solution |
+| :--- | :--- | :--- |
+| `Cannot find dist/index.html` | Frontend was not built before running `npm start`. | Run `npm run build` first. |
+| `PORT out of bounds` error | `PORT` is less than 1 or greater than 65535. | Check your environment variables or compose.yaml. |
+| `Origin not permitted by CORS` | Request origin does not match `CORS_ORIGIN`. | Set `CORS_ORIGIN` to match your domain or `*`. |
+| Session sync 404 in console | Backend was restarted while browser was open. | SandboxGameView automatically self-heals and reconnects. |
+| Stdio MCP connection fails | MCP requires local stdio transport, not public HTTP. | Connect locally via `npm run mcp` as documented in Section 16. |

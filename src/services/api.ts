@@ -24,8 +24,21 @@ export interface HealthResponse {
   providers?: ProviderStatusInfo[];
 }
 
+/**
+ * Resolves the API URL for a given endpoint.
+ * Defaults to relative paths ('/api/...') for unified single-service deployments,
+ * or prepends VITE_API_BASE_URL if configured for split-domain hosting.
+ */
+export function getApiUrl(path: string): string {
+  const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as unknown as { env?: Record<string, string | undefined> }).env : undefined;
+  const base = metaEnv?.VITE_API_BASE_URL || '';
+  const cleanBase = base.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+}
+
 export async function fetchHealth(): Promise<HealthResponse> {
-  const response = await fetch('/api/health');
+  const response = await fetch(getApiUrl('/api/health'));
   if (!response.ok) {
     throw new Error(`Health check failed with status: ${response.status}`);
   }
@@ -39,7 +52,7 @@ export interface GetProvidersResponse {
 }
 
 export async function fetchAiProviders(probe = false): Promise<GetProvidersResponse> {
-  const response = await fetch(`/api/ai/providers${probe ? '?probe=true' : ''}`);
+  const response = await fetch(getApiUrl(`/api/ai/providers${probe ? '?probe=true' : ''}`));
   if (!response.ok) {
     throw new Error(`Failed to fetch AI providers: status ${response.status}`);
   }
@@ -50,7 +63,7 @@ export async function analyzeCharacterImage(
   imageBase64: string,
   promptOverride?: string
 ): Promise<AnalyzeCharacterResponse> {
-  const response = await fetch('/api/ai/analyze-character', {
+  const response = await fetch(getApiUrl('/api/ai/analyze-character'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -94,7 +107,7 @@ export async function analyzeLevelSketch(
   strokeSummary?: string,
   strokeCount?: number
 ): Promise<AnalyzeLevelResponse> {
-  const response = await fetch('/api/ai/analyze-level', {
+  const response = await fetch(getApiUrl('/api/ai/analyze-level'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -119,7 +132,7 @@ export async function transformLevelWithAi(
   instruction: string
 ): Promise<TransformLevelResponse> {
   try {
-    const response = await fetch('/api/ai/transform-level', {
+    const response = await fetch(getApiUrl('/api/ai/transform-level'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -165,7 +178,7 @@ export async function uploadReferenceMedia(
   type: 'image' | 'video-frame' | 'sketch' = 'image',
   userDescription?: string
 ): Promise<UploadReferenceResponse> {
-  const response = await fetch('/api/reference/upload', {
+  const response = await fetch(getApiUrl('/api/reference/upload'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -196,7 +209,7 @@ export async function analyzeReferenceVision(
   imageBase64: string,
   userPrompt?: string
 ): Promise<AnalyzeReferenceResponse> {
-  const response = await fetch('/api/reference/analyze', {
+  const response = await fetch(getApiUrl('/api/reference/analyze'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -225,7 +238,7 @@ export async function requestGamePlan(
   analysis: import('../types/reference.js').ReferenceAnalysis,
   targetEngineOverride?: import('../types/reference.js').TargetEngine
 ): Promise<GeneratePlanResponse> {
-  const response = await fetch('/api/reference/generate-plan', {
+  const response = await fetch(getApiUrl('/api/reference/generate-plan'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -262,7 +275,7 @@ export async function analyzeMultipleFrames(
   frameBase64s: string[],
   userPrompt?: string
 ): Promise<AnalyzeMultipleFramesResponse> {
-  const response = await fetch('/api/reference/analyze-frames', {
+  const response = await fetch(getApiUrl('/api/reference/analyze-frames'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
