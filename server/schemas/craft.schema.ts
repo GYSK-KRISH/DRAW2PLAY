@@ -20,7 +20,22 @@ export type ServerRecognizeCraftRequest = z.infer<typeof ServerRecognizeCraftReq
  */
 export const GeminiCraftRecognitionOutputSchema = z.object({
   detectedSubject: z.string().min(1).describe('The primary item or entity depicted in the sketch'),
-  matchedCategory: z.enum(['wood', 'stone', 'dirt', 'grass', 'unsupported']).describe('The craftable sandbox category, or unsupported'),
+  matchedCategory: z.enum([
+    'wood',
+    'stone',
+    'dirt',
+    'grass',
+    'sand',
+    'coal',
+    'iron_ore',
+    'wood_planks',
+    'stick',
+    'workbench',
+    'torch',
+    'stone_brick',
+    'glass',
+    'unsupported',
+  ]).describe('The craftable sandbox category, or unsupported'),
   confidence: z.number().min(0).max(1).describe('Recognition confidence score between 0.0 and 1.0'),
   explanation: z.string().min(1).describe('Brief justification of the identified item and category'),
   alternativeSubjects: z.array(z.string()).default([]),

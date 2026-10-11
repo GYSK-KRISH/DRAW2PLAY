@@ -28,16 +28,20 @@ import type {
 import {
   HOTBAR_BLOCK_ORDER,
   TILE_DEFINITIONS,
+  SANDBOX_ITEM_CATALOGUE,
 } from '../../types/sandbox.js';
 import {
   createDefaultInventory,
   getSelectedBlockType,
   awardCraftedItem,
+  setHotbarSlot,
 } from '../../game/sandbox/sandboxInventory.js';
+import { craftRecipe } from '../../game/sandbox/sandboxRecipes.js';
 import { generateDefaultSandboxWorld } from '../../game/sandbox/sandboxWorld.js';
 import { saveSandbox, loadSandbox, hasSandboxSave } from '../../services/sandboxStorage.js';
 import { audioService } from '../../services/audioService.js';
 import { DrawToCraftModal } from './DrawToCraftModal.js';
+import { CraftingModal } from './CraftingModal.js';
 
 interface SandboxGameViewProps {
   onBackToStudio: () => void;
@@ -59,6 +63,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
   const [isMuted, setIsMuted] = useState<boolean>(audioService.getIsMuted());
   const [touchMode, setTouchMode] = useState<'mine' | 'place'>('mine');
   const [isCraftModalOpen, setIsCraftModalOpen] = useState<boolean>(false);
+  const [isCraftingModalOpen, setIsCraftingModalOpen] = useState<boolean>(false);
   const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(hasSandboxSave());
   const [awardedSubmissionIds, setAwardedSubmissionIds] = useState<Set<string>>(() => new Set());
 
@@ -175,7 +180,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
           y: playerPosition.y,
           inventory,
         },
-        schemaVersion: '1.0',
+        schemaVersion: '2.0',
       });
       setHasSavedWorld(true);
       triggerFeedback('Sandbox World saved to browser storage!');
@@ -230,6 +235,52 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     [awardedSubmissionIds, inventory, triggerFeedback]
   );
 
+  // Recipe Crafting Handler (Phase 8)
+  const handleCraftRecipe = useCallback(
+    (recipeId: string, batches = 1) => {
+      const craftResult = craftRecipe(inventory, recipeId, batches);
+      if (!craftResult.success || !craftResult.recipe) {
+        triggerFeedback(craftResult.reason || 'Failed to craft recipe.');
+        audioService.playHazard();
+        return;
+      }
+
+      setInventory({ ...craftResult.inventory });
+      if (sceneRef.current) {
+        sceneRef.current.setInventory(craftResult.inventory);
+      }
+
+      const outDef = SANDBOX_ITEM_CATALOGUE[craftResult.recipe.output.itemId];
+      triggerFeedback(
+        `🔨 Crafted ${craftResult.craftedCount}x ${outDef?.displayName || craftResult.recipe.name}!`
+      );
+    },
+    [inventory, triggerFeedback]
+  );
+
+  // Quick equip a placeable block into a specific hotbar slot
+  const handleEquipToHotbar = (slotIdx: number, itemType: PlaceableBlockType) => {
+    audioService.playClick();
+    const updated = setHotbarSlot(inventory, slotIdx, itemType);
+    setInventory(updated);
+    if (sceneRef.current) {
+      sceneRef.current.setInventory(updated);
+    }
+    triggerFeedback(`Equipped ${TILE_DEFINITIONS[itemType].displayName} to hotbar slot ${slotIdx + 1}`);
+  };
+
+  // Keyboard shortcut 'C' toggles crafting modal when not in another modal or text input
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if ((e.key === 'c' || e.key === 'C') && !isCraftModalOpen) {
+        setIsCraftingModalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCraftModalOpen]);
+
   const handleCraftSubmission = (_submission: CraftSubmission) => {
     // Blueprint registered in crafting queue
   };
@@ -258,7 +309,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
               Draw-to-Craft Sandbox
             </span>
             <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800/50 font-mono">
-              Phase 7.1
+              Phase 8: Crafting
             </span>
           </div>
         </div>
@@ -281,12 +332,27 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
           <button
             onClick={() => {
               audioService.playClick();
+              setIsCraftingModalOpen(true);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-950/40 transition-all cursor-pointer"
+            title="Open Crafting Workshop (Press C)"
+          >
+            <Hammer className="w-3.5 h-3.5 text-amber-300" />
+            Crafting
+            <span className="hidden sm:inline-block text-[9px] px-1 py-0.5 rounded bg-black/40 text-amber-200 border border-amber-500/30 font-mono">
+              C
+            </span>
+          </button>
+
+          <button
+            onClick={() => {
+              audioService.playClick();
               setIsCraftModalOpen(true);
             }}
             className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-950/40 transition-all cursor-pointer"
             title="Open Draw to Craft sketch modal"
           >
-            <Hammer className="w-3.5 h-3.5" />
+            <Pickaxe className="w-3.5 h-3.5 text-cyan-200" />
             Draw to Craft
           </button>
 
@@ -340,6 +406,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
           <span>Left-Click : Mine block</span>
           <span>Right-Click : Place block</span>
           <span>1, 2, 3, 4 : Select Hotbar</span>
+          <span>C : Crafting Workshop</span>
         </div>
 
         {/* 3. FLOATING HOTBAR (Bottom Center) */}
@@ -372,48 +439,93 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
 
           {/* Hotbar Slots */}
           <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 rounded-2xl bg-slate-950/85 border border-cyan-800/40 backdrop-blur-md shadow-2xl shadow-cyan-950/60">
-            {HOTBAR_BLOCK_ORDER.map((blockType: PlaceableBlockType, idx: number) => {
-              const def = TILE_DEFINITIONS[blockType];
-              const count = inventory.items[blockType] ?? 0;
-              const isSelected = inventory.selectedSlot === idx;
+            {(inventory.hotbar && inventory.hotbar.length === 4 ? inventory.hotbar : HOTBAR_BLOCK_ORDER).map(
+              (blockType: PlaceableBlockType, idx: number) => {
+                const def = TILE_DEFINITIONS[blockType];
+                const catDef = SANDBOX_ITEM_CATALOGUE[blockType];
+                const count = inventory.items[blockType] ?? 0;
+                const isSelected = inventory.selectedSlot === idx;
 
-              return (
-                <button
-                  key={blockType}
-                  onClick={() => handleSelectSlot(idx)}
-                  className={`relative flex flex-col items-center justify-between w-14 sm:w-16 h-14 sm:h-16 p-1.5 rounded-xl border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-cyan-400 bg-cyan-950/60 shadow-lg shadow-cyan-500/20 scale-105 ring-2 ring-cyan-400/30'
-                      : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-850'
-                  }`}
-                  title={`${def.displayName} (Hotkey ${idx + 1})`}
-                >
-                  {/* Slot Number Tag */}
-                  <span className="absolute top-1 left-1.5 text-[9px] font-mono text-slate-400 font-bold">
-                    {idx + 1}
-                  </span>
-
-                  {/* Block Visual Preview Color Swatch */}
-                  <div
-                    className="w-6 h-6 rounded-md shadow-sm border border-black/30 mt-1"
-                    style={{ backgroundColor: def.colorHex }}
-                  />
-
-                  {/* Block Count Badge */}
-                  <span
-                    className={`text-xs font-mono font-bold ${
-                      count > 0 ? 'text-white' : 'text-slate-500'
+                return (
+                  <button
+                    key={`${blockType}-${idx}`}
+                    onClick={() => handleSelectSlot(idx)}
+                    className={`relative flex flex-col items-center justify-between w-14 sm:w-16 h-14 sm:h-16 p-1.5 rounded-xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-cyan-400 bg-cyan-950/60 shadow-lg shadow-cyan-500/20 scale-105 ring-2 ring-cyan-400/30'
+                        : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-850'
                     }`}
+                    title={`${def?.displayName || blockType} (Hotkey ${idx + 1})`}
                   >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
+                    {/* Slot Number Tag */}
+                    <span className="absolute top-1 left-1.5 text-[9px] font-mono text-slate-400 font-bold">
+                      {idx + 1}
+                    </span>
+
+                    {/* Block Visual Preview Color Swatch / Icon */}
+                    <div
+                      className="w-6 h-6 rounded-md shadow-sm border border-black/30 mt-1 flex items-center justify-center text-xs"
+                      style={{ backgroundColor: def?.colorHex || '#555' }}
+                    >
+                      {catDef?.icon}
+                    </div>
+
+                    {/* Block Count Badge */}
+                    <span
+                      className={`text-xs font-mono font-bold ${
+                        count > 0 ? 'text-white' : 'text-slate-500'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              }
+            )}
           </div>
 
+          {/* Quick-equip inventory placeables (if player owns placeables not in hotbar) */}
+          {Object.entries(inventory.items).some(
+            ([id, count]) =>
+              (count ?? 0) > 0 &&
+              SANDBOX_ITEM_CATALOGUE[id as PlaceableBlockType]?.isPlaceable &&
+              !(inventory.hotbar || HOTBAR_BLOCK_ORDER).includes(id as PlaceableBlockType)
+          ) && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/75 border border-slate-800 backdrop-blur-sm">
+              <span className="text-[10px] text-slate-400 font-mono">Equip to slot {inventory.selectedSlot + 1}:</span>
+              {Object.entries(inventory.items)
+                .filter(
+                  ([id, count]) =>
+                    (count ?? 0) > 0 &&
+                    SANDBOX_ITEM_CATALOGUE[id as PlaceableBlockType]?.isPlaceable &&
+                    !(inventory.hotbar || HOTBAR_BLOCK_ORDER).includes(id as PlaceableBlockType)
+                )
+                .map(([id, count]) => {
+                  const placeableId = id as PlaceableBlockType;
+                  const itemDef = SANDBOX_ITEM_CATALOGUE[placeableId];
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => handleEquipToHotbar(inventory.selectedSlot, placeableId)}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-200 transition-colors"
+                      title={`Assign ${itemDef?.displayName} to slot ${inventory.selectedSlot + 1}`}
+                    >
+                      <span>{itemDef?.icon}</span>
+                      <span className="font-semibold">{itemDef?.displayName}</span>
+                      <span className="text-cyan-400 font-mono font-bold">({count})</span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+
           <span className="hidden sm:inline-block text-[10px] font-mono text-slate-400 drop-shadow">
-            Selected: <strong className="text-cyan-300">{TILE_DEFINITIONS[selectedBlock].displayName}</strong> (Right-Click to Place)
+            Selected: <strong className="text-cyan-300">{TILE_DEFINITIONS[selectedBlock]?.displayName || selectedBlock}</strong>
+            {inventory.items[selectedBlock] === 0 ? (
+              <span className="text-amber-400 ml-1.5 font-sans">(Empty! Mine blocks or craft more)</span>
+            ) : (
+              ' (Right-Click to Place)'
+            )}
           </span>
         </div>
 
@@ -461,6 +573,14 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
         onClose={() => setIsCraftModalOpen(false)}
         onSubmitCraft={handleCraftSubmission}
         onAwardItem={handleAwardItem}
+      />
+
+      {/* 5. CRAFTING RECIPES WORKSHOP MODAL (Phase 8) */}
+      <CraftingModal
+        isOpen={isCraftingModalOpen}
+        onClose={() => setIsCraftingModalOpen(false)}
+        inventory={inventory}
+        onCraftRecipe={handleCraftRecipe}
       />
     </div>
   );

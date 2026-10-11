@@ -19,22 +19,27 @@ const MIN_IMAGE_PAYLOAD_LENGTH = 100;
 const CRAFT_RECOGNITION_PROMPT = `You are the master sketch-to-craft recognition engine for Draw2Play AI Sandbox.
 Analyze the provided user hand-drawn sketch and determine what object or tool is depicted, then map it to the closest supported sandbox craftable category.
 
-The sandbox ONLY supports these 4 craftable block categories:
-1. "wood" -> Wood Block / Timber / Tools:
-   Maps from sketches of: trees, logs, sticks, wooden planks, pickaxes, axes, swords, wooden furniture, torches, workbenches, ladders.
-2. "stone" -> Stone Block / Cobblestone:
-   Maps from sketches of: rocks, boulders, stones, mountains, anvils, hammers, stone walls, bricks, castles.
-3. "dirt" -> Dirt Block / Soil:
-   Maps from sketches of: dirt mounds, soil, earth, mud hills, ground holes, shovels.
-4. "grass" -> Grass Block / Turf:
-   Maps from sketches of: grass blades, flowers, plants, leaves, bushes, shrubs, tree canopies, vegetation.
+The sandbox supports these specific craftable categories:
+1. "wood" -> Wood Log: trees, logs, timber, trunks, large branches
+2. "stone" -> Stone Block: rocks, boulders, pebbles, cobblestone, mountains
+3. "dirt" -> Dirt Block: soil mounds, mud, earth, ground holes, hill outlines
+4. "grass" -> Grass Block: grass blades, wild flowers, plants, bushes, shrubs, leaves
+5. "sand" -> Sand Block: beach shores, sand dunes, deserts
+6. "coal" -> Coal: black coal lumps, combustible minerals, fuel embers
+7. "iron_ore" -> Iron Ore: metallic rocks, mineral chunks, ore blocks
+8. "wood_planks" -> Wooden Planks: cut wooden boards, flat lumber planks, wooden walls
+9. "stick" -> Stick: slender wooden sticks, rods, twigs, tool handles
+10. "workbench" -> Workbench: crafting tables, carpenter desks, tool benches
+11. "torch" -> Torch: wooden torches, firebrands, lanterns, burning flames on sticks
+12. "stone_brick" -> Stone Bricks: chiselled masonry bricks, castle wall stones
+13. "glass" -> Glass Block: transparent glass cubes, window frames, crystal blocks
 
 If the sketch represents an entity clearly OUTSIDE the sandbox theme (such as cars, airplanes, pizzas, computers, faces, monsters, spaceships), you MUST set "matchedCategory" to "unsupported".
 
 Return a valid JSON object matching this schema:
 {
-  "detectedSubject": "Specific item or object depicted (e.g. 'Pickaxe', 'Tree', 'Boulder', 'Flower', 'Airplane')",
-  "matchedCategory": "wood" | "stone" | "dirt" | "grass" | "unsupported",
+  "detectedSubject": "Specific item or object depicted (e.g. 'Torch', 'Tree', 'Pickaxe', 'Workbench', 'Airplane')",
+  "matchedCategory": "wood" | "stone" | "dirt" | "grass" | "sand" | "coal" | "iron_ore" | "wood_planks" | "stick" | "workbench" | "torch" | "stone_brick" | "glass" | "unsupported",
   "confidence": number between 0.0 and 1.0 representing confidence in this identification,
   "explanation": "Brief 1-sentence explanation of why this sketch matches this category",
   "alternativeSubjects": ["alternative label 1", "alternative label 2"]
@@ -50,9 +55,9 @@ export function generateHeuristicCraftRecognition(
   const strokeCount = request.strokeCount ?? Math.max(1, Math.floor(request.imageBase64.length / 5000));
   const payloadLen = request.imageBase64.length;
 
+  const categories: CraftableItemId[] = [...CRAFTABLE_ITEM_ALLOWLIST];
   // Deterministically select category based on drawing characteristics
-  const modulo = (strokeCount * 7 + payloadLen) % 4;
-  const categories: CraftableItemId[] = ['wood', 'stone', 'dirt', 'grass'];
+  const modulo = (strokeCount * 7 + payloadLen) % categories.length;
   const mappedItemId = categories[modulo];
   const itemDef = CRAFTABLE_ITEMS_CATALOGUE[mappedItemId];
 
@@ -61,9 +66,21 @@ export function generateHeuristicCraftRecognition(
     stone: { label: 'Carved Stone Boulder', alternatives: ['Cobblestone', 'Rock Formation'] },
     dirt: { label: 'Earthen Soil Mound', alternatives: ['Ground Turf', 'Dirt Block'] },
     grass: { label: 'Sprouting Grass Foliage', alternatives: ['Wild Flower', 'Leaf Cluster'] },
+    sand: { label: 'Silicate Sand Dune', alternatives: ['Fine Beach Sand', 'Desert Grain'] },
+    coal: { label: 'Carbon Coal Nugget', alternatives: ['Mineral Lump', 'Furnace Fuel'] },
+    iron_ore: { label: 'Raw Iron Ore Vein', alternatives: ['Metal Stone', 'Iron Chunk'] },
+    wood_planks: { label: 'Planed Wooden Planks', alternatives: ['Carpentry Board', 'Wood Timber'] },
+    stick: { label: 'Whittled Crafting Stick', alternatives: ['Slender Branch', 'Wooden Rod'] },
+    workbench: { label: 'Artisan Workbench Table', alternatives: ['Crafting Desk', 'Tool Station'] },
+    torch: { label: 'Blazing Firebrand Torch', alternatives: ['Light Torch', 'Lantern Post'] },
+    stone_brick: { label: 'Chiselled Stone Bricks', alternatives: ['Masonry Block', 'Castle Stone'] },
+    glass: { label: 'Translucent Glass Block', alternatives: ['Window Pane', 'Silica Crystal'] },
   };
 
-  const info = labelsMap[mappedItemId];
+  const info = labelsMap[mappedItemId] || {
+    label: itemDef.displayName,
+    alternatives: itemDef.keywords.slice(0, 2),
+  };
 
   return RecognizeCraftResponseSchema.parse({
     status: 'needs-review',

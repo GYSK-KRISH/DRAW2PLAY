@@ -453,4 +453,74 @@ npm test
 ```
 All 18 Phase 7.2 Draw-to-Craft tests will run alongside the existing suites (105 tests total).
 
+---
+
+## 🔨 15. Phase 8: Sandbox Expansion & Crafting Progression Guide
+
+### Overview
+Phase 8 extends Draw-to-Craft Sandbox into a full 2D crafting progression game with natural resource veins, an atomic deterministic recipe crafting engine, a dedicated crafting workshop modal (`[C]` shortcut), hotbar quick-equip swapping, non-placeable safety, and automated v1.0 → v2.0 save migration.
+
+### Expanded 13-Item Catalogue
+All items in Draw-to-Craft are backed by a single central typed catalogue (`SANDBOX_ITEM_CATALOGUE` in `src/types/sandbox.ts`):
+
+| Item ID | Display Name | Category | Placeable? | Stack Limit | Source / Origin |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| `grass` | Grass Block | Block | Yes | 999 | Surface topsoil |
+| `dirt` | Dirt Block | Block | Yes | 999 | Subsurface soil layer |
+| `stone` | Stone Block | Block | Yes | 999 | Bedrock and underground stratum |
+| `wood` | Wood Log | Block | Yes | 999 | Felled tree trunks and branches |
+| `sand` | Sand Block | Block | Yes | 999 | Natural shoreline deposits (cols 43–46) |
+| `coal` | Coal Ore | Block | Yes | 999 | Mid-stratum underground mineral veins |
+| `iron_ore` | Iron Ore | Block | Yes | 999 | Deep bedrock mineral veins |
+| `wood_planks` | Wooden Planks | Crafted | Yes | 999 | Crafted from 1x Wood Log → 4x Planks |
+| `stick` | Wooden Stick | Material | **No** | 999 | Crafted from 2x Planks → 4x Sticks |
+| `workbench` | Workbench | Placeable | Yes | 999 | Crafted from 4x Planks + 2x Sticks |
+| `torch` | Torch | Utility | Yes | 999 | Crafted from 1x Stick + 1x Coal (or 1x Wood) |
+| `stone_brick` | Stone Bricks | Building | Yes | 999 | Crafted from 4x Stone Blocks |
+| `glass` | Glass Block | Building | Yes | 999 | Smelted from 2x Sand + 1x Coal |
+
+> **Non-Placeable Safety:** Raw materials like `stick` are strictly flagged `isPlaceable: false`. Attempting to place a stick into the world produces friendly feedback ("Wooden Stick is a crafting material and cannot be placed!") and leaves the world tile and player inventory untouched.
+
+### Deterministic Recipe Crafting Engine
+Crafting is 100% deterministic and atomic. Ingredients are never consumed partially or lost if an inventory stack limit would overflow or if requirements are unsatisfied.
+
+Available recipes in `CRAFTING_RECIPES`:
+1. **Wood to Planks:** 1x Wood Log → 4x Wooden Planks
+2. **Planks to Sticks:** 2x Wooden Planks → 4x Sticks
+3. **Workbench:** 4x Wooden Planks + 2x Sticks → 1x Workbench
+4. **Torches (Coal):** 1x Stick + 1x Coal Ore → 4x Torches
+5. **Torches (Wood Ember):** 1x Stick + 1x Wood Log → 2x Torches
+6. **Stone Bricks:** 4x Stone Blocks → 4x Stone Bricks
+7. **Smelt Glass:** 2x Sand + 1x Coal Ore → 2x Glass Blocks
+8. **Turf Propagation:** 1x Grass Block + 2x Dirt Blocks → 3x Grass Blocks
+
+### Crafting Workshop Interface (`CraftingModal.tsx`)
+- Press **`[C]`** on your keyboard or click the amber **`🔨 Crafting`** button in the top HUD.
+- **Category Tabs:** Filter recipes by `All`, `Basic`, `Building`, or `Utility`.
+- **Live Inventory Badges:** Inspect required quantities versus owned materials in real-time.
+- **Batch Stepper & Craft Max:** Craft single items, increment batch counts, or tap **`Craft Max`** to batch-produce up to inventory limits.
+- **Audio Feedback:** Hear retro hammer-strikes on successful crafts and warning buzzers on invalid inputs.
+
+### Hotbar & Quick-Equip Swapping
+- The active hotbar provides 4 quick-access slots (hotkeys `[1]`, `[2]`, `[3]`, `[4]`).
+- When holding crafted placeable blocks not currently mapped to the hotbar (e.g., Wooden Planks, Torches, Glass, Stone Bricks), a compact **Quick-Equip bar** appears below the hotbar. Click any owned block to assign it immediately to the selected hotbar slot!
+- **Dynamic Cursor Feedback:**
+  - **Green border:** Aiming at empty air within player reach (right-click to place).
+  - **Red border:** Aiming at a solid block within reach (left-click to mine).
+  - **Dim gray border:** Aiming at a block outside reach distance (> 220px / ~7 tiles).
+  - **Empty Hotbar Hint:** Warns players when the currently selected slot has count 0.
+
+### Save / Load Compatibility (v1.0 → v2.0)
+- **Automatic Migration:** Saves created in Phase 7.1 (`schemaVersion: '1.0'`) are seamlessly upgraded to `'2.0'` when loaded.
+- **Zero Loss:** All original tiles, player coordinates, and inventory counts are preserved.
+- **Hotbar Array Backfill:** Old inventories lacking the `hotbar` array receive default mappings (`['grass', 'dirt', 'stone', 'wood']`).
+- **Storage Isolation:** Sandbox saves continue to live in `draw2play_sandbox_save_v1`, isolated from the studio's `draw2play_saved_creations`.
+- **Corrupted Save Safety:** Malformed JSON, negative counts, and invalid dimensions are rejected gracefully without crashing or wiping user data.
+
+### Verification Results
+- **Automated Tests:** 120 / 120 tests passing across 10 test suites (`npm test`)
+- **Lint:** 0 warnings, 0 errors (`npm run lint` with `oxlint`)
+- **Build:** Clean TypeScript build & Vite bundle (`npm run build`)
+
+
 

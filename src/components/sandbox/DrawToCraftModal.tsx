@@ -64,6 +64,7 @@ export const DrawToCraftModal: React.FC<DrawToCraftModalProps> = ({
   const [recognitionResult, setRecognitionResult] = useState<RecognizeCraftResponse | null>(null);
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
   const [selectedManualItem, setSelectedManualItem] = useState<CraftableItemId>('wood');
+  const [manualCategoryFilter, setManualCategoryFilter] = useState<'all' | 'block' | 'material' | 'crafted'>('all');
   const [submissionId, setSubmissionId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -694,40 +695,60 @@ export const DrawToCraftModal: React.FC<DrawToCraftModalProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {CRAFTABLE_ITEM_ALLOWLIST.map((itemId) => {
-                  const item = CRAFTABLE_ITEMS_CATALOGUE[itemId];
-                  const isSelected = selectedManualItem === itemId;
-                  return (
-                    <button
-                      key={itemId}
-                      type="button"
-                      onClick={() => {
-                        audioService.playClick();
-                        setSelectedManualItem(itemId);
-                      }}
-                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
-                        isSelected
-                          ? 'bg-cyan-950/50 border-cyan-500 shadow-md shadow-cyan-950/40 ring-1 ring-cyan-500'
-                          : 'bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/70'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-base font-bold text-white flex items-center gap-2">
-                          <span className="text-xl">{item.icon}</span>
-                          <span>{item.displayName}</span>
-                        </span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-300">
-                          {item.category}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-snug">{item.description}</p>
-                      <div className="text-[10px] text-slate-500 mt-1">
-                        Keywords: {item.keywords.slice(0, 5).join(', ')}...
-                      </div>
-                    </button>
-                  );
-                })}
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(['all', 'block', 'material', 'crafted'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => {
+                      audioService.playClick();
+                      setManualCategoryFilter(cat);
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-all cursor-pointer ${
+                      manualCategoryFilter === cat
+                        ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-900/50'
+                        : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-750'
+                    }`}
+                  >
+                    {cat === 'all' ? 'All Items' : cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-1">
+                {CRAFTABLE_ITEM_ALLOWLIST
+                  .filter((id) => manualCategoryFilter === 'all' || CRAFTABLE_ITEMS_CATALOGUE[id].category === manualCategoryFilter)
+                  .map((itemId) => {
+                    const item = CRAFTABLE_ITEMS_CATALOGUE[itemId];
+                    const isSelected = selectedManualItem === itemId;
+                    return (
+                      <button
+                        key={itemId}
+                        type="button"
+                        onClick={() => {
+                          audioService.playClick();
+                          setSelectedManualItem(itemId);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                          isSelected
+                            ? 'bg-cyan-950/60 border-cyan-500 shadow-md shadow-cyan-950/40 ring-1 ring-cyan-500'
+                            : 'bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                            <span className="text-lg">{item.icon}</span>
+                            <span>{item.displayName}</span>
+                          </span>
+                          <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-300 capitalize">
+                            {item.category}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-snug line-clamp-2">{item.description}</p>
+                      </button>
+                    );
+                  })}
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-800">

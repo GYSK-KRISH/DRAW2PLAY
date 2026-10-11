@@ -6,6 +6,8 @@ import type {
 } from '../../types/sandbox.js';
 import {
   TILE_DEFINITIONS,
+  isItemPlaceable,
+  SANDBOX_ITEM_CATALOGUE,
 } from '../../types/sandbox.js';
 import {
   generateDefaultSandboxWorld,
@@ -232,7 +234,7 @@ export class SandboxScene extends Phaser.Scene {
       });
     }
 
-    // E. Tile Hover Cursor Position
+    // E. Tile Hover Cursor Position with dynamic reach & target color feedback
     const pointer = this.input.activePointer;
     if (pointer && this.hoverBox) {
       const tileSize = this.worldData.tileSize;
@@ -247,6 +249,21 @@ export class SandboxScene extends Phaser.Scene {
       ) {
         this.hoverBox.setVisible(true);
         this.hoverBox.setPosition(hoverCol * tileSize, hoverRow * tileSize);
+
+        // Calculate reach distance from player center
+        const tileCenterX = hoverCol * tileSize + tileSize / 2;
+        const tileCenterY = hoverRow * tileSize + tileSize / 2;
+        const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, tileCenterX, tileCenterY);
+        const inReach = dist <= 220;
+
+        const tile = this.worldData.tiles[hoverRow][hoverCol];
+        if (!inReach) {
+          this.hoverBox.setStrokeStyle(2, 0x78716c, 0.5); // Dim gray/amber: out of reach
+        } else if (tile !== 'air') {
+          this.hoverBox.setStrokeStyle(2, 0xf43f5e, 0.9); // Red: mineable block
+        } else {
+          this.hoverBox.setStrokeStyle(2, 0x10b981, 0.9); // Green: placeable air
+        }
       } else {
         this.hoverBox.setVisible(false);
       }
@@ -332,6 +349,13 @@ export class SandboxScene extends Phaser.Scene {
 
   private performPlace(col: number, row: number) {
     const selectedBlock = getSelectedBlockType(this.inventory);
+    if (!isItemPlaceable(selectedBlock)) {
+      const name = (SANDBOX_ITEM_CATALOGUE as Record<string, any>)[selectedBlock]?.displayName ?? String(selectedBlock);
+      this.onActionFeedback?.(`${name} is a crafting material and cannot be placed!`);
+      audioService.playHazard();
+      return;
+    }
+
     const playerRect: Rect = {
       x: this.player.x - 11,
       y: this.player.y - 16,
@@ -465,7 +489,166 @@ export class SandboxScene extends Phaser.Scene {
       g.destroy();
     }
 
-    // 5. Block Debris Particle
+    // 5. Sand Tile
+    if (!this.textures.exists('tile-sand')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xeab308, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      g.fillStyle(0xfde047, 1);
+      g.fillRect(3, 3, 3, 3);
+      g.fillRect(15, 7, 4, 3);
+      g.fillRect(24, 18, 3, 4);
+      g.fillRect(8, 22, 4, 3);
+      g.fillStyle(0xca8a04, 1);
+      g.fillRect(10, 14, 3, 3);
+      g.fillRect(20, 25, 4, 3);
+      g.fillRect(4, 10, 3, 3);
+      g.lineStyle(1, 0xa16207, 0.4);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-sand', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 6. Coal Ore Tile
+    if (!this.textures.exists('tile-coal')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x334155, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      g.fillStyle(0x0f172a, 1);
+      g.fillRect(4, 5, 8, 7);
+      g.fillRect(18, 12, 9, 8);
+      g.fillRect(8, 20, 9, 7);
+      g.fillStyle(0x020617, 1);
+      g.fillRect(6, 7, 4, 4);
+      g.fillRect(20, 14, 5, 4);
+      g.fillRect(10, 22, 5, 4);
+      g.fillStyle(0x64748b, 1);
+      g.fillRect(3, 4, 3, 2);
+      g.fillRect(17, 11, 3, 2);
+      g.lineStyle(1, 0x1e293b, 0.8);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-coal', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 7. Iron Ore Tile
+    if (!this.textures.exists('tile-iron_ore')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x475569, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      g.fillStyle(0xd97706, 1);
+      g.fillRect(5, 6, 7, 6);
+      g.fillRect(19, 8, 8, 7);
+      g.fillRect(8, 19, 8, 8);
+      g.fillStyle(0xfde68a, 1);
+      g.fillRect(6, 7, 3, 3);
+      g.fillRect(20, 9, 3, 3);
+      g.fillRect(10, 20, 3, 3);
+      g.lineStyle(1, 0x334155, 0.8);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-iron_ore', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 8. Wooden Planks Tile
+    if (!this.textures.exists('tile-wood_planks')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xd97706, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      // Plank horizontal lines (4 boards)
+      g.fillStyle(0x92400e, 1);
+      g.fillRect(0, 7, tileSize, 2);
+      g.fillRect(0, 15, tileSize, 2);
+      g.fillRect(0, 23, tileSize, 2);
+      // Vertical seams
+      g.fillRect(10, 0, 2, 7);
+      g.fillRect(22, 8, 2, 7);
+      g.fillRect(14, 16, 2, 7);
+      g.fillRect(6, 24, 2, 8);
+      g.lineStyle(1, 0x78350f, 0.7);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-wood_planks', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 9. Workbench Tile
+    if (!this.textures.exists('tile-workbench')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x78350f, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      // Blue craft grid top
+      g.fillStyle(0x0284c7, 1);
+      g.fillRect(2, 2, tileSize - 4, 12);
+      g.lineStyle(1, 0x38bdf8, 0.8);
+      g.strokeRect(4, 4, tileSize - 8, 8);
+      // Tool drawer on bottom
+      g.fillStyle(0xb45309, 1);
+      g.fillRect(3, 16, tileSize - 6, 12);
+      g.fillStyle(0xfde047, 1);
+      g.fillRect(14, 21, 4, 2);
+      g.lineStyle(1, 0x451a03, 0.9);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-workbench', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 10. Torch Tile
+    if (!this.textures.exists('tile-torch')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x0b1329, 0.3); // Subtle background
+      g.fillRect(0, 0, tileSize, tileSize);
+      // Wooden stick handle
+      g.fillStyle(0x78350f, 1);
+      g.fillRect(14, 12, 4, 18);
+      // Coal head
+      g.fillStyle(0x1e293b, 1);
+      g.fillRect(13, 8, 6, 5);
+      // Flame core
+      g.fillStyle(0xf59e0b, 1);
+      g.fillCircle(16, 7, 5);
+      g.fillStyle(0xfef08a, 1);
+      g.fillCircle(16, 6, 2.5);
+      g.generateTexture('tile-torch', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 11. Stone Bricks Tile
+    if (!this.textures.exists('tile-stone_brick')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x475569, 1);
+      g.fillRect(0, 0, tileSize, tileSize);
+      // Mortar seams (2 rows of bricks)
+      g.fillStyle(0x1e293b, 1);
+      g.fillRect(0, 15, tileSize, 2);
+      g.fillRect(15, 0, 2, 15);
+      g.fillRect(7, 16, 2, 16);
+      g.fillRect(23, 16, 2, 16);
+      g.fillStyle(0x64748b, 1);
+      g.fillRect(2, 2, 11, 2);
+      g.fillRect(18, 2, 11, 2);
+      g.fillRect(10, 18, 11, 2);
+      g.lineStyle(1, 0x0f172a, 0.9);
+      g.strokeRect(0, 0, tileSize, tileSize);
+      g.generateTexture('tile-stone_brick', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 12. Glass Block Tile
+    if (!this.textures.exists('tile-glass')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0x0284c7, 0.2); // Translucent blue tint
+      g.fillRect(0, 0, tileSize, tileSize);
+      g.lineStyle(2, 0x38bdf8, 0.8);
+      g.strokeRect(1, 1, tileSize - 2, tileSize - 2);
+      // Diagonal glint highlights
+      g.lineStyle(2, 0xffffff, 0.7);
+      g.lineBetween(6, 6, 12, 12);
+      g.lineBetween(18, 6, 24, 12);
+      g.generateTexture('tile-glass', tileSize, tileSize);
+      g.destroy();
+    }
+
+    // 13. Block Debris Particle
     if (!this.textures.exists('block-particle')) {
       const g = this.make.graphics({ x: 0, y: 0 });
       g.fillStyle(0xf59e0b, 1);

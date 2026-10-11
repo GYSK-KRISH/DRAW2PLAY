@@ -1,5 +1,6 @@
 import type {
   SandboxInventory,
+  SandboxItemId,
   PlaceableBlockType,
   CraftableItemDefinition,
 } from '../../types/sandbox.js';
@@ -8,6 +9,7 @@ import {
   DEFAULT_SANDBOX_INVENTORY,
   CRAFTABLE_ITEMS_CATALOGUE,
   isValidCraftableItem,
+  isItemPlaceable,
 } from '../../types/sandbox.js';
 
 /**
@@ -17,6 +19,7 @@ export function createDefaultInventory(): SandboxInventory {
   return {
     items: { ...DEFAULT_SANDBOX_INVENTORY.items },
     selectedSlot: 0,
+    hotbar: [...DEFAULT_SANDBOX_INVENTORY.hotbar],
   };
 }
 
@@ -25,7 +28,7 @@ export function createDefaultInventory(): SandboxInventory {
  */
 export function addInventoryItem(
   inventory: SandboxInventory,
-  type: PlaceableBlockType,
+  type: SandboxItemId,
   count = 1
 ): SandboxInventory {
   const safeCount = Math.max(1, Math.floor(count));
@@ -44,7 +47,7 @@ export function addInventoryItem(
  */
 export function hasInventoryItem(
   inventory: SandboxInventory,
-  type: PlaceableBlockType,
+  type: SandboxItemId,
   count = 1
 ): boolean {
   const current = inventory.items[type] ?? 0;
@@ -57,17 +60,18 @@ export function hasInventoryItem(
  */
 export function consumeInventoryItem(
   inventory: SandboxInventory,
-  type: PlaceableBlockType,
+  type: SandboxItemId,
   count = 1
 ): { success: boolean; inventory: SandboxInventory; reason?: string } {
   const needed = Math.max(1, Math.floor(count));
   const current = inventory.items[type] ?? 0;
 
   if (current < needed) {
+    const name = CRAFTABLE_ITEMS_CATALOGUE[type]?.displayName ?? type;
     return {
       success: false,
       inventory,
-      reason: `Out of ${type}! You need at least ${needed}.`,
+      reason: `Out of ${name}! You need at least ${needed}.`,
     };
   }
 
@@ -90,7 +94,8 @@ export function setSelectedSlot(
   inventory: SandboxInventory,
   slotIndex: number
 ): SandboxInventory {
-  const clamped = Math.max(0, Math.min(HOTBAR_BLOCK_ORDER.length - 1, Math.floor(slotIndex)));
+  const hotbarList = inventory.hotbar || HOTBAR_BLOCK_ORDER;
+  const clamped = Math.max(0, Math.min(hotbarList.length - 1, Math.floor(slotIndex)));
   return {
     ...inventory,
     selectedSlot: clamped,
@@ -98,11 +103,30 @@ export function setSelectedSlot(
 }
 
 /**
+ * Assigns a placeable block item to a specific hotbar slot
+ */
+export function setHotbarSlot(
+  inventory: SandboxInventory,
+  slotIndex: number,
+  itemType: PlaceableBlockType
+): SandboxInventory {
+  if (!isItemPlaceable(itemType)) return inventory;
+  const hotbar = [...(inventory.hotbar || HOTBAR_BLOCK_ORDER)];
+  const clamped = Math.max(0, Math.min(hotbar.length - 1, Math.floor(slotIndex)));
+  hotbar[clamped] = itemType;
+  return {
+    ...inventory,
+    hotbar,
+  };
+}
+
+/**
  * Returns the block type for the currently selected hotbar slot
  */
 export function getSelectedBlockType(inventory: SandboxInventory): PlaceableBlockType {
-  const slot = Math.max(0, Math.min(HOTBAR_BLOCK_ORDER.length - 1, inventory.selectedSlot));
-  return HOTBAR_BLOCK_ORDER[slot];
+  const hotbarList = inventory.hotbar || HOTBAR_BLOCK_ORDER;
+  const slot = Math.max(0, Math.min(hotbarList.length - 1, inventory.selectedSlot));
+  return hotbarList[slot] ?? 'grass';
 }
 
 /**
@@ -110,7 +134,7 @@ export function getSelectedBlockType(inventory: SandboxInventory): PlaceableBloc
  */
 export function getInventoryCount(
   inventory: SandboxInventory,
-  type: PlaceableBlockType
+  type: SandboxItemId
 ): number {
   return inventory.items[type] ?? 0;
 }
@@ -122,7 +146,7 @@ export const MAX_INVENTORY_STACK = 999;
 
 /**
  * Awards exactly one validated craftable item to the player's sandbox inventory.
- * Strictly validates against the finite allowlist before mutating inventory.
+ * Strictly validates against the central catalogue before mutating inventory.
  */
 export function awardCraftedItem(
   inventory: SandboxInventory,

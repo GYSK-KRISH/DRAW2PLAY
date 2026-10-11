@@ -3,7 +3,7 @@ import type {
   PlaceableBlockType,
   SandboxWorldData,
 } from '../../types/sandbox.js';
-import { isTileSolid } from '../../types/sandbox.js';
+import { isTileSolid, isItemPlaceable } from '../../types/sandbox.js';
 
 export const DEFAULT_SANDBOX_COLS = 64;
 export const DEFAULT_SANDBOX_ROWS = 36;
@@ -68,7 +68,46 @@ export function generateDefaultSandboxWorld(
     }
   }
 
-  // 3. Plant natural trees on safe surface points
+  // 3. Natural resource deposits:
+  // Sand deposits along gentle shores (columns 43-46)
+  for (let c = 43; c <= 46; c++) {
+    if (c < cols) {
+      const surfaceRow = surfaceHeights[c];
+      tiles[surfaceRow][c] = 'sand';
+      if (surfaceRow + 1 < rows) {
+        tiles[surfaceRow + 1][c] = 'sand';
+      }
+    }
+  }
+
+  // Coal ore veins in mid stone stratum
+  const coalDeposits = [
+    { c: 16, r: 24 },
+    { c: 17, r: 24 },
+    { c: 38, r: 26 },
+    { c: 39, r: 26 },
+    { c: 52, r: 25 },
+  ];
+  for (const dep of coalDeposits) {
+    if (dep.c < cols && dep.r < rows - 2 && dep.r > surfaceHeights[dep.c] + 4) {
+      tiles[dep.r][dep.c] = 'coal';
+    }
+  }
+
+  // Iron ore veins in deep stone stratum
+  const ironDeposits = [
+    { c: 26, r: 30 },
+    { c: 27, r: 30 },
+    { c: 46, r: 31 },
+    { c: 47, r: 31 },
+  ];
+  for (const dep of ironDeposits) {
+    if (dep.c < cols && dep.r < rows - 2 && dep.r > surfaceHeights[dep.c] + 6) {
+      tiles[dep.r][dep.c] = 'iron_ore';
+    }
+  }
+
+  // 4. Plant natural trees on safe surface points
   const treeCols = [8, 20, 35, 48, 58];
   for (const c of treeCols) {
     if (c >= 2 && c < cols - 2) {
@@ -90,7 +129,7 @@ export function generateDefaultSandboxWorld(
     }
   }
 
-  // 4. Safe player spawn point above surface
+  // 5. Safe player spawn point above surface
   const spawnCol = 12;
   const spawnRow = Math.max(2, surfaceHeights[spawnCol] - 2);
   const spawnPoint = {
@@ -155,8 +194,13 @@ export function canPlaceBlock(
   world: SandboxWorldData,
   col: number,
   row: number,
-  playerBounds?: Rect
+  playerBounds?: Rect,
+  itemType?: unknown
 ): { allowed: boolean; reason?: string } {
+  if (itemType !== undefined && !isItemPlaceable(itemType)) {
+    return { allowed: false, reason: `Cannot place "${String(itemType)}": item is not a placeable block.` };
+  }
+
   if (!isValidCoordinate(world, col, row)) {
     return { allowed: false, reason: 'Target location is outside world boundaries.' };
   }
@@ -210,14 +254,18 @@ export function placeBlock(
   world: SandboxWorldData,
   col: number,
   row: number,
-  tileType: PlaceableBlockType,
+  tileType: unknown,
   playerBounds?: Rect
 ): { success: boolean; reason?: string } {
-  const check = canPlaceBlock(world, col, row, playerBounds);
+  if (!isItemPlaceable(tileType)) {
+    return { success: false, reason: `Cannot place "${String(tileType)}": item is not a placeable block.` };
+  }
+
+  const check = canPlaceBlock(world, col, row, playerBounds, tileType);
   if (!check.allowed) {
     return { success: false, reason: check.reason };
   }
 
-  setTile(world, col, row, tileType);
+  setTile(world, col, row, tileType as PlaceableBlockType);
   return { success: true };
 }

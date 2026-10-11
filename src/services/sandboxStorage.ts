@@ -62,6 +62,48 @@ export function saveSandbox(data: SandboxSaveData): boolean {
 export const saveSandboxGame = saveSandbox;
 
 /**
+ * Safely migrates legacy v1.0 sandbox save data to current format.
+ * Preserves all original world tiles, player coordinates, and inventory counts.
+ */
+export function migrateSandboxSave(raw: unknown): SandboxSaveData | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  try {
+    const data = { ...(raw as Record<string, any>) };
+
+    // If it is already v2.0 and valid, return parsed directly
+    if (data.schemaVersion === '2.0') {
+      const directParse = SandboxSaveDataSchema.safeParse(data);
+      if (directParse.success) {
+        return directParse.data;
+      }
+    }
+
+    // Handle legacy v1.0 structure
+    if (data.player && typeof data.player === 'object') {
+      const playerObj = { ...data.player };
+      if (playerObj.inventory && typeof playerObj.inventory === 'object') {
+        const invObj = { ...playerObj.inventory };
+        if (!Array.isArray(invObj.hotbar)) {
+          invObj.hotbar = ['grass', 'dirt', 'stone', 'wood'];
+        }
+        playerObj.inventory = invObj;
+      }
+      data.player = playerObj;
+    }
+
+    if (!data.schemaVersion || data.schemaVersion === '1.0') {
+      data.schemaVersion = '2.0';
+    }
+
+    const migrated = SandboxSaveDataSchema.safeParse(data);
+    return migrated.success ? migrated.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Loads and validates saved sandbox world state. Returns null if missing or corrupted.
  */
 export function loadSandbox(): SandboxSaveData | null {
@@ -71,11 +113,19 @@ export function loadSandbox(): SandboxSaveData | null {
   try {
     const parsed = JSON.parse(raw);
     const result = SandboxSaveDataSchema.safeParse(parsed);
-    if (!result.success) {
-      console.warn('[SandboxStorage] Corrupted sandbox save detected:', result.error.format());
-      return null;
+    if (result.success) {
+      return result.data;
     }
-    return result.data;
+
+    // Try migration for legacy saves
+    const migrated = migrateSandboxSave(parsed);
+    if (migrated) {
+      saveSandbox(migrated);
+      return migrated;
+    }
+
+    console.warn('[SandboxStorage] Corrupted sandbox save detected:', result.error.format());
+    return null;
   } catch (err) {
     console.warn('[SandboxStorage] Failed to parse sandbox save JSON:', err);
     return null;

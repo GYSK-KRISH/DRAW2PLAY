@@ -1,39 +1,272 @@
 import { z } from 'zod';
 
 /**
- * Supported Sandbox Tile Types
+ * Master List of All Supported Sandbox Item IDs
  */
-export const SandboxTileTypeSchema = z.enum([
-  'air',
+export const SANDBOX_ITEM_IDS = [
+  // Primary natural blocks (Legacy & Base)
   'grass',
   'dirt',
   'stone',
   'wood',
+  // Expanded natural materials
+  'sand',
+  'coal',
+  'iron_ore',
+  // Crafted progression items
+  'wood_planks',
+  'stick',
+  'workbench',
+  'torch',
+  'stone_brick',
+  'glass',
+] as const;
+
+export const SandboxItemIdSchema = z.enum(SANDBOX_ITEM_IDS);
+export type SandboxItemId = z.infer<typeof SandboxItemIdSchema>;
+
+/**
+ * Placeable block types (excluding air and non-placeable materials like sticks)
+ */
+export const PLACEABLE_BLOCK_TYPES = [
+  'grass',
+  'dirt',
+  'stone',
+  'wood',
+  'sand',
+  'coal',
+  'iron_ore',
+  'wood_planks',
+  'workbench',
+  'torch',
+  'stone_brick',
+  'glass',
+] as const;
+
+export const PlaceableBlockTypeSchema = z.enum(PLACEABLE_BLOCK_TYPES);
+export type PlaceableBlockType = z.infer<typeof PlaceableBlockTypeSchema>;
+
+/**
+ * Supported Sandbox Tile Types (air + all placeable blocks)
+ */
+export const SandboxTileTypeSchema = z.enum([
+  'air',
+  ...PLACEABLE_BLOCK_TYPES,
 ]);
 export type SandboxTileType = z.infer<typeof SandboxTileTypeSchema>;
 
 /**
- * Placeable block types (excluding air)
+ * Item Category classification
  */
-export const PlaceableBlockTypeSchema = z.enum([
-  'grass',
-  'dirt',
-  'stone',
-  'wood',
-]);
-export type PlaceableBlockType = z.infer<typeof PlaceableBlockTypeSchema>;
+export const SandboxItemCategorySchema = z.enum(['block', 'material', 'crafted']);
+export type SandboxItemCategory = z.infer<typeof SandboxItemCategorySchema>;
 
 /**
- * Physical and visual properties of each tile type
+ * Comprehensive Item Definition in the Central Catalogue
+ */
+export interface SandboxItemDefinition {
+  id: SandboxItemId;
+  displayName: string;
+  category: SandboxItemCategory;
+  icon: string;
+  description: string;
+  keywords: string[];
+  isPlaceable: boolean;
+  isMinable: boolean;
+  hardness: number; // Mining difficulty
+  colorHex: string;
+  maxStack: number;
+}
+
+/**
+ * Physical and visual properties of each tile type in the sandbox world
  */
 export interface TileDefinition {
   type: SandboxTileType;
   isSolid: boolean;
-  hardness: number; // Mining difficulty
+  hardness: number;
   colorHex: string;
   displayName: string;
 }
 
+/**
+ * Central Catalogue of All Sandbox Items (Single Source of Truth)
+ */
+export const SANDBOX_ITEM_CATALOGUE: Record<SandboxItemId, SandboxItemDefinition> = {
+  wood: {
+    id: 'wood',
+    displayName: 'Wood Log',
+    category: 'block',
+    icon: '🪵',
+    description: 'Raw timber felled from forest trees. Primary material for planks, sticks, and construction.',
+    keywords: ['wood', 'tree', 'log', 'timber', 'trunk', 'bark', 'lumber'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 2,
+    colorHex: '#b45309',
+    maxStack: 999,
+  },
+  stone: {
+    id: 'stone',
+    displayName: 'Stone Block',
+    category: 'block',
+    icon: '🪨',
+    description: 'Durable stone cobble mined from bedrock, ideal for fortresses and chiseling into stone bricks.',
+    keywords: ['stone', 'rock', 'boulder', 'cobblestone', 'granite', 'mountain'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 3,
+    colorHex: '#64748b',
+    maxStack: 999,
+  },
+  dirt: {
+    id: 'dirt',
+    displayName: 'Dirt Block',
+    category: 'block',
+    icon: '🟫',
+    description: 'Basic fertile soil block for terraforming and ground leveling.',
+    keywords: ['dirt', 'soil', 'mud', 'ground', 'earth', 'hill', 'mound'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 1,
+    colorHex: '#854d0e',
+    maxStack: 999,
+  },
+  grass: {
+    id: 'grass',
+    displayName: 'Grass Block',
+    category: 'block',
+    icon: '🟩',
+    description: 'Natural topsoil covered with lush vegetation and wild greenery.',
+    keywords: ['grass', 'turf', 'lawn', 'field', 'foliage', 'meadow', 'plant'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 1,
+    colorHex: '#22c55e',
+    maxStack: 999,
+  },
+  sand: {
+    id: 'sand',
+    displayName: 'Sand Block',
+    category: 'block',
+    icon: '🏖️',
+    description: 'Fine granular silica found along coastlines and dunes. Can be smelted into glass.',
+    keywords: ['sand', 'dune', 'beach', 'desert', 'silica', 'grain'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 1,
+    colorHex: '#eab308',
+    maxStack: 999,
+  },
+  coal: {
+    id: 'coal',
+    displayName: 'Coal',
+    category: 'material',
+    icon: '⚫',
+    description: 'Combustible mineral mined underground, used as furnace fuel and for crafting torches.',
+    keywords: ['coal', 'fuel', 'ore', 'carbon', 'lump', 'ember', 'soot'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 2,
+    colorHex: '#1e293b',
+    maxStack: 999,
+  },
+  iron_ore: {
+    id: 'iron_ore',
+    displayName: 'Iron Ore',
+    category: 'block',
+    icon: '⛏️',
+    description: 'Raw metallic mineral veined deep within the subterranean stone stratum.',
+    keywords: ['iron', 'ore', 'metal', 'mineral', 'vein', 'iron_ore', 'nugget'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 3,
+    colorHex: '#94a3b8',
+    maxStack: 999,
+  },
+  wood_planks: {
+    id: 'wood_planks',
+    displayName: 'Wooden Planks',
+    category: 'crafted',
+    icon: '📦',
+    description: 'Refined carpentry timber milled from raw logs, used for building and crafting workbenches.',
+    keywords: ['plank', 'planks', 'board', 'carpentry', 'wood_planks', 'timber'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 1.5,
+    colorHex: '#d97706',
+    maxStack: 999,
+  },
+  stick: {
+    id: 'stick',
+    displayName: 'Stick',
+    category: 'material',
+    icon: '🥢',
+    description: 'Slender wooden branch whittled from planks. Essential crafting component for tools and torches.',
+    keywords: ['stick', 'branch', 'rod', 'handle', 'twig', 'shaft'],
+    isPlaceable: false, // Non-placeable crafting material
+    isMinable: false,
+    hardness: 0,
+    colorHex: '#78350f',
+    maxStack: 999,
+  },
+  workbench: {
+    id: 'workbench',
+    displayName: 'Workbench',
+    category: 'crafted',
+    icon: '🛠️',
+    description: 'Master craftsman table for assembling advanced architectural blueprints and tools.',
+    keywords: ['workbench', 'table', 'crafting', 'desk', 'tools', 'anvil', 'workshop'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 2,
+    colorHex: '#0284c7',
+    maxStack: 999,
+  },
+  torch: {
+    id: 'torch',
+    displayName: 'Torch',
+    category: 'crafted',
+    icon: '🔥',
+    description: 'Portable firebrand mounted on a wooden stick, providing illumination and warmth.',
+    keywords: ['torch', 'light', 'flame', 'fire', 'lantern', 'candle'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 0.5,
+    colorHex: '#f59e0b',
+    maxStack: 999,
+  },
+  stone_brick: {
+    id: 'stone_brick',
+    displayName: 'Stone Bricks',
+    category: 'crafted',
+    icon: '🧱',
+    description: 'Square-cut masonry bricks chiselled from raw stone for sturdy castles and towers.',
+    keywords: ['brick', 'bricks', 'stone_brick', 'masonry', 'castle', 'wall'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 3,
+    colorHex: '#475569',
+    maxStack: 999,
+  },
+  glass: {
+    id: 'glass',
+    displayName: 'Glass Block',
+    category: 'crafted',
+    icon: '🪟',
+    description: 'Smooth, translucent silicate glass block for decorative windows and skylights.',
+    keywords: ['glass', 'window', 'pane', 'crystal', 'transparent', 'silica'],
+    isPlaceable: true,
+    isMinable: true,
+    hardness: 0.8,
+    colorHex: '#38bdf8',
+    maxStack: 999,
+  },
+};
+
+/**
+ * World Tile definitions map
+ */
 export const TILE_DEFINITIONS: Record<SandboxTileType, TileDefinition> = {
   air: {
     type: 'air',
@@ -70,6 +303,62 @@ export const TILE_DEFINITIONS: Record<SandboxTileType, TileDefinition> = {
     colorHex: '#b45309',
     displayName: 'Wood Log',
   },
+  sand: {
+    type: 'sand',
+    isSolid: true,
+    hardness: 1,
+    colorHex: '#eab308',
+    displayName: 'Sand Block',
+  },
+  coal: {
+    type: 'coal',
+    isSolid: true,
+    hardness: 2,
+    colorHex: '#1e293b',
+    displayName: 'Coal Ore',
+  },
+  iron_ore: {
+    type: 'iron_ore',
+    isSolid: true,
+    hardness: 3,
+    colorHex: '#94a3b8',
+    displayName: 'Iron Ore',
+  },
+  wood_planks: {
+    type: 'wood_planks',
+    isSolid: true,
+    hardness: 1.5,
+    colorHex: '#d97706',
+    displayName: 'Wooden Planks',
+  },
+  workbench: {
+    type: 'workbench',
+    isSolid: true,
+    hardness: 2,
+    colorHex: '#0284c7',
+    displayName: 'Workbench',
+  },
+  torch: {
+    type: 'torch',
+    isSolid: true,
+    hardness: 0.5,
+    colorHex: '#f59e0b',
+    displayName: 'Torch',
+  },
+  stone_brick: {
+    type: 'stone_brick',
+    isSolid: true,
+    hardness: 3,
+    colorHex: '#475569',
+    displayName: 'Stone Bricks',
+  },
+  glass: {
+    type: 'glass',
+    isSolid: true,
+    hardness: 0.8,
+    colorHex: '#38bdf8',
+    displayName: 'Glass Block',
+  },
 };
 
 /**
@@ -80,11 +369,62 @@ export function isTileSolid(type: SandboxTileType): boolean {
 }
 
 /**
+ * Checks if an item ID can be placed as a tile in the world
+ */
+export function isItemPlaceable(itemId: unknown): itemId is PlaceableBlockType {
+  return typeof itemId === 'string' && (PLACEABLE_BLOCK_TYPES as readonly string[]).includes(itemId);
+}
+
+/**
+ * Validates whether an ID exists in the sandbox item catalogue
+ */
+export function isValidSandboxItem(id: unknown): id is SandboxItemId {
+  return typeof id === 'string' && (SANDBOX_ITEM_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * Backwards compatibility aliases for Phase 7.1/7.2
+ */
+export const CRAFTABLE_ITEM_ALLOWLIST = SANDBOX_ITEM_IDS;
+export const CraftableItemIdSchema = SandboxItemIdSchema;
+export type CraftableItemId = SandboxItemId;
+export type CraftableItemDefinition = SandboxItemDefinition;
+export const CRAFTABLE_ITEMS_CATALOGUE = SANDBOX_ITEM_CATALOGUE;
+export const isValidCraftableItem = isValidSandboxItem;
+
+/**
+ * Crafting Recipe Ingredient Schema
+ */
+export const CraftingIngredientSchema = z.object({
+  itemId: SandboxItemIdSchema,
+  count: z.number().int().positive(),
+});
+export type CraftingIngredient = z.infer<typeof CraftingIngredientSchema>;
+
+/**
+ * Deterministic Crafting Recipe Schema
+ */
+export const CraftingRecipeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  category: z.enum(['basic', 'building', 'tools', 'utility']),
+  inputs: z.array(CraftingIngredientSchema).min(1),
+  output: z.object({
+    itemId: SandboxItemIdSchema,
+    count: z.number().int().positive(),
+  }),
+  requiresWorkbench: z.boolean().default(false),
+});
+export type CraftingRecipe = z.infer<typeof CraftingRecipeSchema>;
+
+/**
  * Inventory Counts Schema
  */
 export const SandboxInventorySchema = z.object({
-  items: z.record(PlaceableBlockTypeSchema, z.number().int().nonnegative()),
+  items: z.record(z.string(), z.number().int().nonnegative()),
   selectedSlot: z.number().int().min(0).max(3).default(0),
+  hotbar: z.array(PlaceableBlockTypeSchema).default(['grass', 'dirt', 'stone', 'wood']),
 });
 export type SandboxInventory = z.infer<typeof SandboxInventorySchema>;
 
@@ -99,6 +439,7 @@ export const DEFAULT_SANDBOX_INVENTORY: SandboxInventory = {
     wood: 8,
   },
   selectedSlot: 0,
+  hotbar: ['grass', 'dirt', 'stone', 'wood'],
 };
 
 /**
@@ -127,7 +468,7 @@ export const SandboxWorldDataSchema = z.object({
 export type SandboxWorldData = z.infer<typeof SandboxWorldDataSchema>;
 
 /**
- * Sandbox Save Record Schema
+ * Sandbox Save Record Schema (supports v1.0 and v2.0)
  */
 export const SandboxSaveDataSchema = z.object({
   id: z.string().min(1),
@@ -140,70 +481,9 @@ export const SandboxSaveDataSchema = z.object({
     y: z.number(),
     inventory: SandboxInventorySchema,
   }),
-  schemaVersion: z.literal('1.0').default('1.0'),
+  schemaVersion: z.string().default('2.0'),
 });
 export type SandboxSaveData = z.infer<typeof SandboxSaveDataSchema>;
-
-/**
- * Finite allowlist of craftable sandbox item IDs
- */
-export const CRAFTABLE_ITEM_ALLOWLIST = ['grass', 'dirt', 'stone', 'wood'] as const;
-export const CraftableItemIdSchema = z.enum(CRAFTABLE_ITEM_ALLOWLIST);
-export type CraftableItemId = z.infer<typeof CraftableItemIdSchema>;
-
-/**
- * Metadata definition for each craftable sandbox item
- */
-export interface CraftableItemDefinition {
-  id: CraftableItemId;
-  displayName: string;
-  category: 'block' | 'material';
-  icon: string;
-  description: string;
-  keywords: string[];
-}
-
-export const CRAFTABLE_ITEMS_CATALOGUE: Record<CraftableItemId, CraftableItemDefinition> = {
-  wood: {
-    id: 'wood',
-    displayName: 'Wood Block',
-    category: 'block',
-    icon: '🪵',
-    description: 'Sturdy wooden log or timber for constructing walls, frames, and shelter.',
-    keywords: ['wood', 'tree', 'log', 'stick', 'plank', 'pickaxe', 'axe', 'sword', 'hammer', 'bench', 'torch', 'timber'],
-  },
-  stone: {
-    id: 'stone',
-    displayName: 'Stone Block',
-    category: 'block',
-    icon: '🪨',
-    description: 'Durable stone cobble mined from bedrock, ideal for fortresses and pillars.',
-    keywords: ['stone', 'rock', 'boulder', 'cobblestone', 'anvil', 'mountain', 'brick', 'castle'],
-  },
-  dirt: {
-    id: 'dirt',
-    displayName: 'Dirt Block',
-    category: 'block',
-    icon: '🟫',
-    description: 'Basic fertile soil block for terraforming and ground leveling.',
-    keywords: ['dirt', 'soil', 'mud', 'ground', 'earth', 'shovel', 'hill', 'mound'],
-  },
-  grass: {
-    id: 'grass',
-    displayName: 'Grass Block',
-    category: 'block',
-    icon: '🟩',
-    description: 'Natural topsoil covered with lush vegetation and wild greenery.',
-    keywords: ['grass', 'flower', 'plant', 'leaf', 'bush', 'shrub', 'lawn', 'garden'],
-  },
-};
-
-/**
- * Validates whether an ID is an allowlisted craftable sandbox item
- */
-export function isValidCraftableItem(id: unknown): id is CraftableItemId {
-  return typeof id === 'string' && CRAFTABLE_ITEM_ALLOWLIST.includes(id as CraftableItemId);
-}
 
 /**
  * Discriminated recognition status for sketch recognition
