@@ -13,6 +13,7 @@ import {
   Volume2,
   VolumeX,
   Boxes,
+  Pickaxe,
 } from 'lucide-react';
 import { audioService } from '../../services/audioService.js';
 
@@ -28,6 +29,7 @@ interface TopBarProps {
   onExportClick: () => void;
   onAnalyzeClick: () => void;
   onReferenceIntakeClick?: () => void;
+  onSandboxClick?: () => void;
   onQuickPlayClick?: () => void;
   onOpenCreationsClick?: () => void;
   onSaveClick?: () => void;
@@ -47,6 +49,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onExportClick,
   onAnalyzeClick,
   onReferenceIntakeClick,
+  onSandboxClick,
   onQuickPlayClick,
   onOpenCreationsClick,
   onSaveClick,
@@ -271,6 +274,26 @@ export const TopBar: React.FC<TopBarProps> = ({
               <span>Reference Intake</span>
               <span className="hidden lg:inline text-[9px] font-mono px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300">
                 v6.1
+              </span>
+            </button>
+          )}
+
+          {/* Draw-to-Craft Sandbox Button (Phase 7.1) */}
+          {onSandboxClick && (
+            <button
+              type="button"
+              onClick={() => {
+                audioService.playClick();
+                onSandboxClick();
+              }}
+              title="Explore 2D Draw-to-Craft sandbox mode with block mining and placing"
+              aria-label="Draw-to-Craft Sandbox Mode"
+              className="px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-[#0e1424] hover:bg-emerald-950/40 text-emerald-300 border border-emerald-800/50 shadow-md hover:border-emerald-500/60 transition-all cursor-pointer active:scale-95"
+            >
+              <Pickaxe className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Sandbox</span>
+              <span className="hidden lg:inline text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
+                v7.1
               </span>
             </button>
           )}

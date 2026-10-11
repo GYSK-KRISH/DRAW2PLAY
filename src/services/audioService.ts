@@ -302,6 +302,105 @@ class AudioService {
       // Safe no-op
     }
   }
+
+  /**
+   * 7. Sandbox Block Mined: Crisp crunchy block break impact
+   */
+  public playMine(): void {
+    if (this.isMuted || this.shouldThrottle('mine', 80)) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(260, now);
+      osc.frequency.exponentialRampToValueAtTime(70, now + 0.12);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(500, now);
+      filter.frequency.exponentialRampToValueAtTime(150, now + 0.12);
+
+      gain.gain.setValueAtTime(this.volume * 0.45, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } catch {
+      // Safe no-op
+    }
+  }
+
+  /**
+   * 8. Sandbox Block Placed: Sturdy construction thud
+   */
+  public playPlace(): void {
+    if (this.isMuted || this.shouldThrottle('place', 80)) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(65, now + 0.09);
+
+      gain.gain.setValueAtTime(this.volume * 0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.11);
+    } catch {
+      // Safe no-op
+    }
+  }
+
+  /**
+   * 9. Draw-to-Craft Action: Harmonic sparkling crafting chime
+   */
+  public playCraft(): void {
+    if (this.isMuted || this.shouldThrottle('craft', 300)) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const freqs = [440, 659.25, 880]; // A4, E5, A5
+      freqs.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = now + idx * 0.08;
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, start);
+
+        gain.gain.setValueAtTime(this.volume * 0.4, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(start);
+        osc.stop(start + 0.22);
+      });
+    } catch {
+      // Safe no-op
+    }
+  }
 }
 
 export const audioService = new AudioService();

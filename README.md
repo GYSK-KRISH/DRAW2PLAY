@@ -344,28 +344,47 @@ Draw2Play AI enables creators to transform playable levels using plain English i
   * **Confidence Tiers:** Automatic categorization into `high`, `medium`, and `low` confidence based on evidence richness and agreement.
   * **Generation Plan Validation:** Explicit warnings when plans are formulated from heuristic analysis or low confidence references.
 * **Phase 7.1 Status:** **COMPLETE & VERIFIED**
-  * **AI Provider Abstraction (`server/providers/types.ts`):** Lightweight, typed contract defining provider identity, supported capabilities (`text-generation`, `image-understanding`, `multi-image-analysis`), normalized requests/responses, execution metadata, and typed error classifications (`auth_error`, `rate_limit`, `timeout`, `invalid_output`, `network_error`, `unsupported_capability`).
-  * **Server-Side Registry (`server/providers/registry.ts`):** Centralized registry for registering, retrieving, and selecting providers by capability with duplicate ID guards and capability validation.
-  * **Gemini Provider Adapter (`server/providers/gemini.provider.ts`):** Wraps official `@google/genai` SDK behind the provider contract with 18s timeout, bounded frames, structured output Zod validation, and zero secret leakage.
-  * **Service Migration:** `gemini.service.ts` and `referenceAnalysis.service.ts` refactored to execute via `aiProviderRegistry` and `GeminiProvider`.
-  * **Diagnostics & Status:** Safe `GET /api/ai/providers` and enriched `GET /api/health` endpoints reporting provider configuration and availability without exposing secrets.
-  * **Verified Quality:** 82 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passes in ~650ms.
+  * **Draw-to-Craft Sandbox Mode Foundation:** Fully integrated 2D tile-based sandbox mode inside the existing Phaser 4 + React 19 architecture.
+  * **Procedural 2D Sandbox World:** 64x36 bounded world (32px tiles) with layered terrain (Air, Grass, Dirt, Stone), natural trees, and safe player spawn.
+  * **Physics, Collision & Single-Jump Handling:** Arcade Physics with static tile colliders, horizontal/vertical collision resolution, grounded state reset, single-jump key-press guard, and safe respawn on out-of-bounds fall.
+  * **Mining & Block Placement:** Left-click mining, right-click placing (with context-menu suppression on game canvas), reach-limit checks (4.5 tiles), player-AABB overlap prevention, and non-negative inventory updates.
+  * **Hotbar & Inventory:** 4 hotbar slots (`[1] Grass`, `[2] Dirt`, `[3] Stone`, `[4] Wood`) selectable via number keys 1-4, hotbar clicks, or touch buttons.
+  * **Draw-to-Craft Integration Foundation:** Interactive drawing modal with brush/eraser/clear/undo/preview, creating typed `CraftSubmission` records with transparent placeholder status (zero fake predictions or random awards).
+  * **Sandbox Persistence:** Safe `localStorage` persistence (`draw2play_sandbox_save_v1`) with Zod schema validation and corruption fallback, isolated from My Creations.
+  * **Verified Quality:** 87 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passing cleanly.
 
-### Gemini Configuration Workflow:
-Configure the Gemini API key in your server environment via `.env`:
-```env
-# Server environment (.env)
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3.8-flash
-```
-If `GEMINI_API_KEY` is omitted, Draw2Play automatically degrades gracefully to deterministic heuristic analysis (`mock-heuristic` provenance), clearly labeled in all UI banners and responses.
+---
 
-### Known Limitations (Phase 7.1):
-- **Single Registered Provider:** Gemini is currently the only registered provider in Phase 7.1. Hugging Face and other compatible providers will be added in Phase 7.2 using this abstraction.
-- AudioContext requires an initial user interaction (click or tap) to unlock audio playback per standard browser security policies.
-- Without a valid `GEMINI_API_KEY` in `.env`, the system automatically falls back to deterministic heuristic reference analysis (`mock-heuristic`), clearly indicated in the UI.
-- Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels and plans are stored as compact vector coordinates to maximize capacity.
-- Full 3D voxel rendering requires a dedicated 3D engine scheduled for a subsequent phase.
+## ⛏️ 13. Draw-to-Craft Sandbox Mode (Phase 7.1 Guide)
 
-### Recommended Next Step (Phase 7.2):
-- **Hugging Face Provider Adapter:** Implement a secondary provider adapter conforming to the `AiProvider` contract for open-source vision and text models.
+### How to Open the Sandbox:
+Click the **"Sandbox v7.1"** button (pickaxe icon) in the studio top bar. You can return to the Draw2Play sketch studio anytime using the **"Studio"** button in the top navigation bar.
+
+### Sandbox Controls:
+- **Movement:** `[A]/[D]` or `[←]/[→]` to run left/right.
+- **Jump:** `[W]`, `[Space]`, or `[↑]` to jump. Holding the jump key will not trigger unintended repeated jumps (single-press guard).
+- **Mine Block:** Left-click on any solid block within reach (4.5 tiles). The block is converted to air and collected into your inventory.
+- **Place Block:** Right-click on an empty space within reach (4.5 tiles) to place your active hotbar item. Browser context menu is suppressed on the game canvas.
+- **Hotbar Selection:** Press number keys `[1]`, `[2]`, `[3]`, or `[4]` to select Grass, Dirt, Stone, or Wood, or click on the hotbar slots.
+- **Mobile Touch Controls:** On-screen D-pad buttons (`[◀]`, `[▶]`, `[▲]`) for movement and jump, plus a **Mine / Place toggle button** (`⛏️ Mine` vs `🧱 Place`) allowing single-touch interactions on mobile devices.
+- **Save / Load World:** Use the "Save World" and "Load World" buttons in the top HUD to persist your world tiles, inventory, and player position.
+
+### How Inventory Works:
+- Tracks quantities for Grass, Dirt, Stone, and Wood blocks.
+- Inventory decrements when placing a block and increments when mining a block.
+- Inventory counts cannot become negative.
+- Placement is rejected if you attempt to place inside your character's bounding box or if you lack materials.
+
+### Draw to Craft Status:
+- **What is implemented:**
+  - Dedicated **Draw to Craft** modal accessible via the `🎨 Draw to Craft` button on the top HUD.
+  - Interactive drawing canvas supporting stylus, mouse, and touch input with brush, eraser, undo, clear, and brush size slider.
+  - Sketch submission preview and typed `CraftSubmission` data model with provenance tracking.
+  - Procedural sound effects for mining, placing, and crafting interactions.
+- **What is NOT implemented yet (Reserved for Phase 7.2):**
+  - No fake AI predictions or random awards are returned.
+  - Transformers.js / ONNX runtime models are deferred to Phase 7.2.
+
+### Next Planned Phase (Phase 7.2):
+- **Local Sketch Recognition:** Connect a local, in-browser classification model (e.g. QuickDraw ONNX or MobileNet) to recognize drawn tools and items directly from user sketches and craft them into the sandbox inventory.
+

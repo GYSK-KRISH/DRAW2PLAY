@@ -12,6 +12,7 @@ import { HelpModal } from './components/studio/HelpModal.js';
 import { MyCreationsModal } from './components/studio/MyCreationsModal.js';
 import { ReferenceIntakeModal } from './components/studio/ReferenceIntakeModal.js';
 import { PhaserGameView } from './components/game/PhaserGameView.js';
+import { SandboxGameView } from './components/sandbox/SandboxGameView.js';
 
 import type {
   CanvasTool,
@@ -31,8 +32,8 @@ import { audioService } from './services/audioService.js';
 const SESSION_START_TIME = new Date().toISOString();
 
 export function App() {
-  // Application View Mode: Studio Editor vs. Active Game
-  const [viewMode, setViewMode] = useState<'studio' | 'playing'>('studio');
+  // Application View Mode: Studio Editor vs. Active Game vs. Draw-to-Craft Sandbox
+  const [viewMode, setViewMode] = useState<'studio' | 'playing' | 'sandbox'>('studio');
   const [activePlayableScene, setActivePlayableScene] = useState<PlayableGameScene | null>(null);
 
   // Tool & Palette State
@@ -288,6 +289,7 @@ export function App() {
         onAnalyzeClick={handleAnalyzeClick}
         onReferenceIntakeClick={() => setIsReferenceModalOpen(true)}
         onQuickPlayClick={handleQuickPlay}
+        onSandboxClick={() => setViewMode('sandbox')}
         onOpenCreationsClick={() => setIsCreationsModalOpen(true)}
         onSaveClick={handleSaveCurrentCreation}
         onToggleMute={handleToggleMute}
@@ -301,8 +303,12 @@ export function App() {
         </div>
       )}
 
-      {/* 2. ACTIVE VIEWPORT: PLAYABLE GAME ENGINE OR STUDIO CANVAS */}
-      {viewMode === 'playing' && activePlayableScene ? (
+      {/* 2. ACTIVE VIEWPORT: SANDBOX, PLAYABLE GAME ENGINE, OR STUDIO CANVAS */}
+      {viewMode === 'sandbox' ? (
+        <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col">
+          <SandboxGameView onBackToStudio={() => setViewMode('studio')} />
+        </main>
+      ) : viewMode === 'playing' && activePlayableScene ? (
         <main className="flex-1 max-w-[1700px] w-full mx-auto px-3 sm:px-6 py-4 flex flex-col">
           <PhaserGameView
             sceneData={activePlayableScene}
