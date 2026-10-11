@@ -35,7 +35,7 @@ export interface AnalysisLifecycleSnapshot {
   state: AnalysisLifecycleState;
   correlationId: string | null;
   analysis: ReferenceAnalysis | null;
-  source: 'gemini-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock' | null;
+  source: 'gemini-vision' | 'huggingface-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock' | null;
   provider: {
     id: string;
     model: string;
@@ -74,7 +74,7 @@ export class AnalysisLifecycleManager {
   private listeners = new Set<LifecycleListener>();
 
   private analysis: ReferenceAnalysis | null = null;
-  private source: 'gemini-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock' | null = null;
+  private source: 'gemini-vision' | 'huggingface-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock' | null = null;
   private provider: { id: string; model: string; isFallback: boolean } | null = null;
   private notice: string | null = null;
   private error: AnalysisErrorState | null = null;
@@ -116,7 +116,7 @@ export class AnalysisLifecycleManager {
     }
   }
 
-  private isBusy(): boolean {
+  public isBusy(): boolean {
     return (
       this.state === 'validating' ||
       this.state === 'uploading' ||
@@ -138,7 +138,7 @@ export class AnalysisLifecycleManager {
     userPrompt: string;
     category?: GameCategory;
     engine?: TargetEngine;
-    mode?: 'auto' | 'gemini-only' | 'heuristic-only';
+    mode?: 'auto' | 'gemini-only' | 'hf-only' | 'heuristic-only';
     allowFallback?: boolean;
     correlationIdOverride?: string;
   }): Promise<ReferenceAnalysis | null> {
@@ -210,7 +210,7 @@ export class AnalysisLifecycleManager {
           correlationId,
           signal,
           mode: params.mode || 'auto',
-          allowFallback: params.allowFallback ?? false,
+          allowFallback: params.allowFallback ?? true,
           referenceId: this.referenceId,
         }
       );

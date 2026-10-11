@@ -265,7 +265,7 @@ export async function uploadReferenceMedia(
 export interface AnalyzeReferenceResponse {
   success: boolean;
   correlationId?: string;
-  source: 'gemini-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock';
+  source: 'gemini-vision' | 'huggingface-vision' | 'mock-heuristic' | 'manual-input' | 'development-mock';
   provider?: {
     id: string;
     model: string;
@@ -273,6 +273,11 @@ export interface AnalyzeReferenceResponse {
   };
   analysis: import('../types/reference.js').ReferenceAnalysis;
   notice?: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
   error?: string | ApiErrorDetail;
 }
 
@@ -280,7 +285,7 @@ export async function analyzeReferenceVision(
   imageBase64: string,
   userPrompt?: string,
   options?: RequestOptions & {
-    mode?: 'auto' | 'gemini-only' | 'heuristic-only';
+    mode?: 'auto' | 'gemini-only' | 'hf-only' | 'heuristic-only';
     allowFallback?: boolean;
     referenceId?: string;
   }
@@ -299,7 +304,7 @@ export async function analyzeReferenceVision(
       userPrompt,
       referenceId: options?.referenceId,
       mode: options?.mode || 'auto',
-      allowFallback: options?.allowFallback ?? false,
+      allowFallback: options?.allowFallback ?? true,
       correlationId: options?.correlationId,
     }),
   });

@@ -6,6 +6,7 @@ import {
   AiProviderError,
 } from './types.js';
 import { GeminiProvider } from './gemini.provider.js';
+import { HuggingFaceProvider } from './huggingface.provider.js';
 
 /**
  * Server-side AI Provider Registry.
@@ -19,13 +20,20 @@ export class AiProviderRegistry {
 
   /**
    * Register a new AI provider.
-   * Throws if a provider with the same ID is already registered.
+   * Throws if a provider with the same ID is already registered unless override is true.
    */
-  public registerProvider(provider: AiProvider): void {
-    if (this.providers.has(provider.id)) {
+  public registerProvider(provider: AiProvider, override = false): void {
+    if (this.providers.has(provider.id) && !override) {
       throw new Error(`AI provider with ID "${provider.id}" is already registered`);
     }
     this.providers.set(provider.id, provider);
+  }
+
+  /**
+   * Unregister an AI provider by ID.
+   */
+  public unregisterProvider(id: AiProviderId): boolean {
+    return this.providers.delete(id);
   }
 
   /**
@@ -124,5 +132,6 @@ export class AiProviderRegistry {
  */
 export const aiProviderRegistry = new AiProviderRegistry();
 
-// Initialize with the standard Gemini provider
+// Initialize with the standard Gemini and Hugging Face providers
 aiProviderRegistry.registerProvider(new GeminiProvider());
+aiProviderRegistry.registerProvider(new HuggingFaceProvider());

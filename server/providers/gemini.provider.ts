@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
 import { serverConfig } from '../config.js';
 import {
   AiProvider,
@@ -11,8 +12,8 @@ import {
   AiProviderError,
 } from './types.js';
 
-/** Default timeout for Gemini API calls in milliseconds (18 seconds) */
-export const DEFAULT_GEMINI_TIMEOUT_MS = 18_000;
+/** Default timeout for Gemini API calls in milliseconds (35 seconds) */
+export const DEFAULT_GEMINI_TIMEOUT_MS = 35_000;
 
 /** Maximum frames bounded for multi-image requests */
 export const MAX_MULTI_IMAGE_FRAMES = 5;
@@ -43,20 +44,43 @@ export interface GeminiProviderOptions {
   timeoutMs?: number;
 }
 
-/** Helper to wrap a promise with a hard timeout */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/** Helper to wrap a promise with a hard timeout and cancellation signal support */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  signal?: AbortSignal
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    if (signal?.aborted) {
+      return reject(new Error('AbortError'));
+    }
+
+    let timer: NodeJS.Timeout | null = null;
+
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      reject(new Error('AbortError'));
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
       reject(new Error(`${label} timed out after ${ms}ms`));
     }, ms);
 
     promise.then(
       (value) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
         resolve(value);
       },
       (error) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
         reject(error);
       }
     );
@@ -90,6 +114,11 @@ export function classifyError(error: unknown): {
 
   const message = error instanceof Error ? error.message : String(error);
   const lowerMsg = message.toLowerCase();
+
+  // Cancellation / Abort
+  if (lowerMsg.includes('aborterror') || lowerMsg.includes('abort') || lowerMsg.includes('cancelled') || lowerMsg.includes('canceled')) {
+    return { category: 'cancelled', statusCode: 499, isRetryable: false };
+  }
 
   // Missing configuration
   if (lowerMsg.includes('missing_configuration') || lowerMsg.includes('is not configured') || lowerMsg.includes('missing api key')) {
@@ -154,12 +183,16 @@ export function classifyError(error: unknown): {
     return { category: 'invalid_request', statusCode: 400, isRetryable: false };
   }
 
-  // Invalid Model Output (JSON parse or schema mismatch)
+  // Invalid Model Output (JSON parse or schema mismatch, Zod validation errors)
   if (
+    error instanceof z.ZodError ||
+    (error as { name?: string })?.name === 'ZodError' ||
     lowerMsg.includes('schema') ||
     lowerMsg.includes('json') ||
     lowerMsg.includes('parse') ||
-    lowerMsg.includes('syntaxerror')
+    lowerMsg.includes('syntaxerror') ||
+    lowerMsg.includes('too_big') ||
+    lowerMsg.includes('invalid_type')
   ) {
     return { category: 'invalid_output', statusCode: 502, isRetryable: false };
   }
@@ -201,8 +234,8 @@ export class GeminiProvider implements AiProvider {
   constructor(options?: GeminiProviderOptions & { maxRetries?: number }) {
     this.defaultModel = options?.model || serverConfig.geminiModel || 'gemini-3.8-flash';
     this.apiKey = options && 'apiKey' in options ? options.apiKey : serverConfig.geminiApiKey;
-    this.defaultTimeoutMs = options?.timeoutMs || DEFAULT_GEMINI_TIMEOUT_MS;
-    this.defaultMaxRetries = options?.maxRetries ?? 2;
+    this.defaultTimeoutMs = options?.timeoutMs || serverConfig.geminiTimeoutMs || DEFAULT_GEMINI_TIMEOUT_MS;
+    this.defaultMaxRetries = options?.maxRetries ?? 1;
 
     if (options?.client) {
       this.client = options.client;
@@ -370,6 +403,10 @@ export class GeminiProvider implements AiProvider {
           }
         }
 
+        if (request.signal?.aborted) {
+          throw new Error('AbortError');
+        }
+
         const rawCall = client.models.generateContent({
           model,
           contents: [
@@ -380,7 +417,12 @@ export class GeminiProvider implements AiProvider {
           ],
         });
 
-        const response = await withTimeout(rawCall, timeoutMs, `Gemini ${request.capability}`);
+        const response = await withTimeout(
+          rawCall,
+          timeoutMs,
+          `Gemini ${request.capability}`,
+          request.signal
+        );
         const durationMs = Date.now() - startTime;
         const responseText = response?.text || '';
 
@@ -458,14 +500,29 @@ export class GeminiProvider implements AiProvider {
           });
         }
       } catch (err: unknown) {
+        if (
+          (err instanceof Error && (err.name === 'AbortError' || err.message === 'AbortError')) ||
+          request.signal?.aborted
+        ) {
+          throw new AiProviderError({
+            providerId: this.id,
+            category: 'cancelled',
+            code: 'CANCELLED',
+            message: 'Request was cancelled',
+            statusCode: 499,
+            isRetryable: false,
+            correlationId: request.correlationId,
+          });
+        }
+
         const classification = classifyError(err);
         const safeMessage = sanitizeErrorMessage(
           err instanceof Error ? err.message : String(err),
           this.apiKey
         );
 
-        // Retry only transient failures if within bounded limit
-        if (classification.isRetryable && attempt < maxRetries) {
+        // Retry only transient failures if within bounded limit and not aborted
+        if (classification.isRetryable && attempt < maxRetries && !request.signal?.aborted) {
           attempt++;
           const baseDelay = 100;
           const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);

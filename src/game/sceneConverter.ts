@@ -448,7 +448,7 @@ export function convertPlanToPlayableScene(
     schemaVersion: '1.0' as const,
     id: plan.id,
     name: plan.title,
-    source: (plan.provenance === 'gemini-vision' ? 'gemini-vision' : 'local-vector') as SceneProvenanceSource,
+    source: (plan.provenance === 'gemini-vision' ? 'gemini-vision' : plan.provenance === 'huggingface-vision' ? 'huggingface-vision' : 'local-vector') as SceneProvenanceSource,
     templateId: plan.templateId,
     movementModel,
     levelName: plan.title || `${plan.category.toUpperCase()} — Generated Level`,

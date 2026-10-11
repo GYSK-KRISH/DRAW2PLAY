@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'node:crypto';
+import { z } from 'zod';
 import { serverConfig } from '../config.js';
 import {
   UploadReferenceRequestSchema,
@@ -13,12 +14,12 @@ import {
   ImageValidationError,
 } from '../services/upload.service.js';
 import {
-  analyzeReferenceWithGemini,
+  analyzeReferenceWithFallbackChain,
   analyzeMultipleFramesWithGemini,
-  generateHeuristicReferenceAnalysis,
   buildGameGenerationPlan,
 } from '../services/referenceAnalysis.service.js';
 import { logAnalysisEvent } from '../utils/analysisLogger.js';
+import { classifyHfError, sanitizeHfErrorMessage } from '../providers/huggingface.provider.js';
 import { classifyError } from '../providers/gemini.provider.js';
 import { AiProviderError } from '../providers/types.js';
 
@@ -143,8 +144,9 @@ referenceRouter.post('/upload', async (req: Request, res: Response): Promise<voi
 
 /**
  * Reference Vision Analysis Endpoint (single image / frame)
- * Truthfully executes live provider or explicit heuristic fallback.
- * Never silently returns hardcoded mock heuristic disguised as Gemini output.
+ * Reference Vision Analysis Endpoint (single image / frame)
+ * Fallback chain: Gemini -> Hugging Face -> Deterministic Heuristic.
+ * Never silently returns hardcoded mock heuristic disguised as live AI.
  */
 referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<void> => {
   const correlationId = getCorrelationId(req);
@@ -158,8 +160,8 @@ referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<vo
         correlationId,
         stage: 'error',
         durationMs: Date.now() - startTime,
-        provider: 'gemini',
-        model: serverConfig.geminiModel,
+        provider: 'validator',
+        model: 'validator',
         httpStatus: 400,
         errorCategory: 'invalid_request',
         isFallback: false,
@@ -180,171 +182,98 @@ referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const { imageBase64, userPrompt, mode = 'auto', allowFallback = false } = parseResult.data;
+    const { imageBase64, userPrompt, mode = 'auto', allowFallback = true } = parseResult.data;
 
-    // 1. Explicit heuristic-only mode
-    if (mode === 'heuristic-only') {
-      const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
-      logAnalysisEvent({
-        correlationId,
-        stage: 'fallback',
-        durationMs: Date.now() - startTime,
-        provider: 'local-heuristic',
-        model: 'deterministic-keywords-v2',
-        httpStatus: 200,
-        isFallback: true,
-      });
-
-      res.json({
-        success: true,
-        correlationId,
-        source: 'mock-heuristic',
-        provider: {
-          id: 'local-heuristic',
-          model: 'deterministic-keywords-v2',
-          isFallback: true,
-        },
-        analysis: fallback,
-        notice:
-          'Local heuristic analysis based on prompt keywords. Results do not reflect actual image content.',
-      });
-      return;
-    }
-
-    // 2. Auto or Gemini-only with missing configuration
-    if (!serverConfig.geminiApiKey) {
-      if (allowFallback && mode !== 'gemini-only') {
-        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
-        logAnalysisEvent({
-          correlationId,
-          stage: 'fallback',
-          durationMs: Date.now() - startTime,
-          provider: 'local-heuristic',
-          model: 'deterministic-keywords-v2',
-          httpStatus: 200,
-          isFallback: true,
-          details: 'Fallback allowed and used because GEMINI_API_KEY is not configured',
-        });
-
-        res.json({
-          success: true,
-          correlationId,
-          source: 'mock-heuristic',
-          provider: {
-            id: 'local-heuristic',
-            model: 'deterministic-keywords-v2',
-            isFallback: true,
-          },
-          analysis: fallback,
-          notice:
-            'GEMINI_API_KEY is not configured on the server. Used deterministic keyword heuristic analysis.',
-        });
-        return;
+    const abortController = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        abortController.abort();
       }
+    });
 
-      logAnalysisEvent({
-        correlationId,
-        stage: 'error',
-        durationMs: Date.now() - startTime,
-        provider: 'gemini',
-        model: serverConfig.geminiModel,
-        httpStatus: 503,
-        errorCategory: 'missing_configuration',
-        isFallback: false,
-        details: 'GEMINI_API_KEY is not configured on the server',
-      });
-
-      res.status(503).json({
-        success: false,
-        correlationId,
-        error: {
-          code: 'MISSING_CONFIGURATION',
-          message: 'GEMINI_API_KEY is not configured on the server.',
-          category: 'missing_configuration',
-          isRetryable: false,
-          canFallbackToHeuristic: true,
-        },
-      });
-      return;
-    }
-
-    // 3. Live Gemini Vision call
     try {
-      const analysis = await analyzeReferenceWithGemini(imageBase64, userPrompt, correlationId);
-      const durationMs = Date.now() - startTime;
+      const result = await analyzeReferenceWithFallbackChain(imageBase64, userPrompt, {
+        mode,
+        allowFallback,
+        correlationId,
+        signal: abortController.signal,
+      });
 
+      const durationMs = Date.now() - startTime;
       logAnalysisEvent({
         correlationId,
-        stage: 'success',
+        stage: result.provider.isFallback ? 'fallback' : 'success',
         durationMs,
-        provider: 'gemini',
-        model: serverConfig.geminiModel,
+        provider: result.provider.id,
+        model: result.provider.model,
         httpStatus: 200,
-        isFallback: false,
+        isFallback: result.provider.isFallback,
+        details: result.notice,
       });
 
       res.json({
         success: true,
         correlationId,
-        source: 'gemini-vision',
-        provider: {
-          id: 'gemini',
-          model: analysis.modelProvenance || serverConfig.geminiModel,
-          isFallback: false,
-        },
-        analysis,
-        usage: analysis.usage,
+        source: result.source,
+        provider: result.provider,
+        analysis: result.analysis,
+        notice: result.notice,
+        usage: result.usage,
       });
-    } catch (geminiError: unknown) {
+    } catch (chainError: unknown) {
       const durationMs = Date.now() - startTime;
-      const classification = classifyError(geminiError);
-      const safeMsg =
-        geminiError instanceof Error ? geminiError.message : 'Gemini Vision analysis failed';
-      const statusCode =
-        (geminiError as AiProviderError)?.statusCode || classification.statusCode || 500;
-      const errorCode =
-        (geminiError as AiProviderError)?.code || classification.category.toUpperCase();
+      const isZodError =
+        chainError instanceof z.ZodError ||
+        (chainError as { name?: string })?.name === 'ZodError';
+
+      let statusCode = 500;
+      let errorCode = 'SERVER_ERROR';
+      let errorCategory = 'server_error';
+      let isRetryable = false;
+      let safeMsg = chainError instanceof Error ? chainError.message : 'Reference analysis failed';
+      let errorDetails: unknown = undefined;
+
+      if (isZodError) {
+        statusCode = 502;
+        errorCode = 'SCHEMA_VALIDATION_ERROR';
+        errorCategory = 'invalid_output';
+        safeMsg = 'AI analysis output failed validation schema.';
+        const issues = (chainError as z.ZodError).issues || [];
+        errorDetails = issues.map((iss) => ({
+          field: iss.path.join('.'),
+          code: iss.code,
+          message: iss.message,
+        }));
+      } else if (chainError instanceof AiProviderError) {
+        statusCode = chainError.statusCode || 500;
+        errorCode = chainError.code;
+        errorCategory = chainError.category;
+        isRetryable = chainError.isRetryable;
+        safeMsg = chainError.message;
+      } else {
+        const classified = classifyHfError(chainError);
+        statusCode = classified.statusCode || 500;
+        errorCode = classified.category.toUpperCase();
+        errorCategory = classified.category;
+        isRetryable = classified.isRetryable;
+      }
+
+      // Guarantee no raw token leakage in message
+      safeMsg = sanitizeHfErrorMessage(safeMsg);
 
       logAnalysisEvent({
         correlationId,
         stage: 'error',
         durationMs,
-        provider: 'gemini',
-        model: serverConfig.geminiModel,
+        provider: (chainError as AiProviderError)?.providerId || 'analysis-chain',
+        model: 'vision-pipeline',
         httpStatus: statusCode,
-        errorCategory: classification.category,
+        errorCategory,
         isFallback: false,
-        details: safeMsg,
+        details: isZodError
+          ? `Schema validation failed on fields: ${((errorDetails as Array<{ field: string }>) || []).map((d) => d.field).join(', ')}`
+          : safeMsg,
       });
-
-      // Never silently replace a failed live call with mock output unless client explicitly permits it
-      if (allowFallback && mode !== 'gemini-only') {
-        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
-        logAnalysisEvent({
-          correlationId,
-          stage: 'fallback',
-          durationMs,
-          provider: 'local-heuristic',
-          model: 'deterministic-keywords-v2',
-          httpStatus: 200,
-          isFallback: true,
-          details: `Fallback used after live failure: ${safeMsg}`,
-        });
-
-        res.json({
-          success: true,
-          correlationId,
-          source: 'mock-heuristic',
-          provider: {
-            id: 'local-heuristic',
-            model: 'deterministic-keywords-v2',
-            isFallback: true,
-          },
-          analysis: fallback,
-          notice: `Live Gemini call failed (${safeMsg}). Switched to deterministic keyword heuristic analysis. Results do not reflect actual image content.`,
-        });
-        return;
-      }
 
       res.status(statusCode).json({
         success: false,
@@ -352,15 +281,16 @@ referenceRouter.post('/analyze', async (req: Request, res: Response): Promise<vo
         error: {
           code: errorCode,
           message: safeMsg,
-          category: classification.category,
-          isRetryable: classification.isRetryable,
+          category: errorCategory,
+          isRetryable,
           canFallbackToHeuristic: true,
+          details: errorDetails,
         },
       });
     }
   } catch (err: unknown) {
     const durationMs = Date.now() - startTime;
-    const safeMsg = (err as Error).message || 'Internal server error during reference analysis';
+    const safeMsg = sanitizeHfErrorMessage((err as Error).message || 'Internal server error during reference analysis');
 
     logAnalysisEvent({
       correlationId,
@@ -485,13 +415,35 @@ referenceRouter.post('/analyze-frames', async (req: Request, res: Response): Pro
       });
     } catch (geminiError: unknown) {
       const durationMs = Date.now() - startTime;
+      const isZodError =
+        geminiError instanceof z.ZodError ||
+        (geminiError as { name?: string })?.name === 'ZodError';
       const classification = classifyError(geminiError);
-      const safeMsg =
-        geminiError instanceof Error ? geminiError.message : 'Multi-frame vision analysis failed';
-      const statusCode =
+
+      let statusCode =
         (geminiError as AiProviderError)?.statusCode || classification.statusCode || 502;
-      const errorCode =
+      let errorCode =
         (geminiError as AiProviderError)?.code || classification.category.toUpperCase();
+      let safeMsg =
+        geminiError instanceof Error ? geminiError.message : 'Multi-frame vision analysis failed';
+      let errorCategory = classification.category;
+      let errorDetails: unknown = undefined;
+
+      if (isZodError) {
+        statusCode = 502;
+        errorCode = 'SCHEMA_VALIDATION_ERROR';
+        errorCategory = 'invalid_output';
+        safeMsg = 'Multi-frame AI analysis output failed validation schema.';
+        const issues = (geminiError as z.ZodError).issues || [];
+        errorDetails = issues.map((iss) => ({
+          field: iss.path.join('.'),
+          code: iss.code,
+          message: iss.message,
+        }));
+      } else if (classification.category === 'timeout') {
+        statusCode = 504;
+        errorCode = 'TIMEOUT';
+      }
 
       logAnalysisEvent({
         correlationId,
@@ -500,9 +452,11 @@ referenceRouter.post('/analyze-frames', async (req: Request, res: Response): Pro
         provider: 'gemini',
         model: serverConfig.geminiModel,
         httpStatus: statusCode,
-        errorCategory: classification.category,
+        errorCategory,
         isFallback: false,
-        details: safeMsg,
+        details: isZodError
+          ? `Schema validation failed on fields: ${((errorDetails as Array<{ field: string }>) || []).map((d) => d.field).join(', ')}`
+          : safeMsg,
       });
 
       res.status(statusCode).json({
@@ -511,8 +465,9 @@ referenceRouter.post('/analyze-frames', async (req: Request, res: Response): Pro
         error: {
           code: errorCode,
           message: safeMsg,
-          category: classification.category,
+          category: errorCategory,
           isRetryable: classification.isRetryable,
+          details: errorDetails,
         },
         notice: 'Try reducing the number of frames or use single-frame /analyze endpoint.',
       });

@@ -10,7 +10,7 @@
 
 export type BackendConnectivity = 'connected' | 'offline' | 'checking';
 
-export type ProviderConfiguration = 'gemini-ready' | 'mock-fallback' | 'misconfigured';
+export type ProviderConfiguration = 'gemini-ready' | 'huggingface-ready' | 'mock-fallback' | 'misconfigured';
 
 export type AnalysisStage =
   | 'idle'
@@ -22,7 +22,7 @@ export type AnalysisStage =
   | 'ready'
   | 'error';
 
-export type ResultProvenance = 'gemini-vision' | 'mock-heuristic' | 'manual-input' | 'none';
+export type ResultProvenance = 'gemini-vision' | 'huggingface-vision' | 'mock-heuristic' | 'manual-input' | 'none';
 
 export type LastErrorCategory =
   | 'none'

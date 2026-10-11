@@ -38,7 +38,8 @@ assert.strictEqual(testGemini.defaultModel, 'gemini-3.8-flash');
 assert.ok(testGemini.capabilities.has('text-generation'));
 assert.ok(testGemini.capabilities.has('image-understanding'));
 assert.ok(testGemini.capabilities.has('multi-image-analysis'));
-assert.strictEqual(DEFAULT_GEMINI_TIMEOUT_MS, 18_000);
+// Default timeout increased from 18s to 35s for reliable image understanding
+assert.strictEqual(DEFAULT_GEMINI_TIMEOUT_MS, 35_000);
 console.log('  ✓ GeminiProvider contract and capabilities verified');
 
 // ---------------------------------------------------------------------------

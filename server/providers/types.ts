@@ -28,6 +28,7 @@ export type ProviderErrorCategory =
   | 'server_error'
   | 'invalid_output'
   | 'unsupported_capability'
+  | 'cancelled'
   | 'unknown_error';
 
 export interface ProviderExecutionMetadata {
@@ -51,6 +52,7 @@ export interface BaseProviderRequest<T = unknown> {
   modelOverride?: string;
   maxRetries?: number;
   correlationId?: string;
+  signal?: AbortSignal;
 }
 
 export interface TextGenerationRequest<T = unknown> extends BaseProviderRequest<T> {

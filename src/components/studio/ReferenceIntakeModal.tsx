@@ -14,7 +14,6 @@ import {
   Boxes,
   Eye,
   Sliders,
-  FileCode,
   Layers,
   Film,
   TrendingUp,
@@ -198,7 +197,12 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
         setNoticeMessage(snapshot.notice);
       }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (analysisLifecycleManager.isBusy()) {
+        analysisLifecycleManager.cancel();
+      }
+    };
   }, []);
 
   const isLifecycleBusy = [
@@ -258,6 +262,19 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
     } catch (err: unknown) {
       setErrorMessage((err as Error).message);
     }
+  };
+
+  // Handle Remove Image
+  const handleRemoveImage = () => {
+    setPreviewImage(null);
+    setLoadedMedia(null);
+    setImageMeta(null);
+    setAnalysis(null);
+    setGeneratedPlan(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    analysisLifecycleManager.reset();
   };
 
   // Handle Video File Selection
@@ -327,9 +344,9 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
       setImageMeta((prev) =>
         prev
           ? {
-              ...prev,
-              name: `${videoFile.name} (frame at ${time.toFixed(1)}s)`,
-            }
+            ...prev,
+            name: `${videoFile.name} (frame at ${time.toFixed(1)}s)`,
+          }
           : null
       );
     } catch (err: unknown) {
@@ -443,7 +460,7 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
       category: editedCategory,
       engine: editedPipeline,
       mode: 'auto',
-      allowFallback: false,
+      allowFallback: true,
     });
   };
 
@@ -759,7 +776,12 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (analysisLifecycleManager.isBusy()) {
+                analysisLifecycleManager.cancel();
+              }
+              onClose();
+            }}
             aria-label="Close Reference Studio"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
           >
@@ -773,11 +795,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
             <button
               type="button"
               onClick={() => setCurrentStep('intake')}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${
-                currentStep === 'intake'
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${currentStep === 'intake'
                   ? 'bg-cyan-500 text-black shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
+                }`}
             >
               <span>1. Reference Intake</span>
               {previewImage && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
@@ -787,13 +808,12 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
               type="button"
               disabled={!analysis}
               onClick={() => analysis && setCurrentStep('plan-studio')}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none ${
-                !analysis
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none ${!analysis
                   ? 'text-slate-600 cursor-not-allowed opacity-50'
                   : currentStep === 'plan-studio'
-                  ? 'bg-purple-600 text-white shadow-md cursor-pointer'
-                  : 'text-slate-400 hover:text-slate-200 cursor-pointer hover:bg-slate-900'
-              }`}
+                    ? 'bg-purple-600 text-white shadow-md cursor-pointer'
+                    : 'text-slate-400 hover:text-slate-200 cursor-pointer hover:bg-slate-900'
+                }`}
             >
               <span>2. Plan Studio</span>
               {analysis && <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />}
@@ -803,13 +823,12 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
               type="button"
               disabled={!generatedPlan}
               onClick={() => generatedPlan && setCurrentStep('generation-results')}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${
-                !generatedPlan
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none ${!generatedPlan
                   ? 'text-slate-600 cursor-not-allowed opacity-50'
                   : currentStep === 'generation-results'
-                  ? 'bg-emerald-500 text-black shadow-md cursor-pointer'
-                  : 'text-slate-400 hover:text-slate-200 cursor-pointer hover:bg-slate-900'
-              }`}
+                    ? 'bg-emerald-500 text-black shadow-md cursor-pointer'
+                    : 'text-slate-400 hover:text-slate-200 cursor-pointer hover:bg-slate-900'
+                }`}
             >
               <span>3. Generation Results</span>
               {generatedPlan && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
@@ -844,11 +863,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveTab('upload-image')}
-                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${
-                    activeTab === 'upload-image'
+                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${activeTab === 'upload-image'
                       ? 'bg-cyan-500 text-black shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Upload className="w-3.5 h-3.5" />
                   <span>Upload Screenshot / Image</span>
@@ -856,11 +874,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveTab('video-frame')}
-                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${
-                    activeTab === 'video-frame'
+                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${activeTab === 'video-frame'
                       ? 'bg-cyan-500 text-black shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Video className="w-3.5 h-3.5" />
                   <span>Video Frame Grabber</span>
@@ -872,11 +889,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                     handleUseCurrentSketch();
                   }}
                   disabled={!hasCanvasStrokes}
-                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${
-                    activeTab === 'canvas-sketch'
+                  className={`flex-1 py-2 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none ${activeTab === 'canvas-sketch'
                       ? 'bg-cyan-500 text-black shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Paintbrush className="w-3.5 h-3.5" />
                   <span>Use Current Canvas Sketch</span>
@@ -897,11 +913,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                         onDragLeave={() => setIsDraggingOver(false)}
                         onDrop={handleDropFile}
                         onClick={() => fileInputRef.current?.click()}
-                        className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer min-h-[170px] ${
-                          isDraggingOver
+                        className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer min-h-[170px] ${isDraggingOver
                             ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-400/30 scale-[1.01]'
                             : 'border-slate-700 hover:border-cyan-400 bg-slate-900/40 hover:bg-slate-900/60'
-                        }`}
+                          }`}
                       >
                         <input
                           ref={fileInputRef}
@@ -928,13 +943,22 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                         <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-bold text-slate-200">Loaded Image Status</span>
-                            <button
-                              type="button"
-                              onClick={() => fileInputRef.current?.click()}
-                              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-semibold cursor-pointer"
-                            >
-                              Replace Image
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-semibold cursor-pointer transition-colors"
+                              >
+                                Replace Image
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleRemoveImage}
+                                className="px-2 py-0.5 rounded bg-rose-950/60 hover:bg-rose-900 border border-rose-800/60 text-rose-300 hover:text-white text-[11px] font-semibold cursor-pointer transition-colors"
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
                             <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
@@ -952,460 +976,478 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                     </div>
                   )}
 
-              {activeTab === 'video-frame' && (
-                <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-300">Choose Short Gameplay Video:</span>
-                    <button
-                      type="button"
-                      onClick={() => videoInputRef.current?.click()}
-                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-semibold cursor-pointer"
-                    >
-                      {videoFile ? 'Change Video' : 'Browse Video (MP4/WebM)'}
-                    </button>
-                    <input
-                      ref={videoInputRef}
-                      type="file"
-                      accept="video/mp4,video/webm"
-                      onChange={handleVideoFileChange}
-                      className="hidden"
-                    />
-                  </div>
-
-                  {videoFile && (
-                    <div className="space-y-2 pt-2 border-t border-slate-800">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Selected Frame Timestamp:</span>
-                        <span className="font-mono text-cyan-400">{seekTime.toFixed(1)}s / {videoDuration.toFixed(1)}s</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max={videoDuration}
-                        step="0.1"
-                        value={seekTime}
-                        onChange={(e) => handleSeekFrame(parseFloat(e.target.value))}
-                        className="w-full accent-cyan-400 cursor-pointer"
-                      />
-
-                      {/* Phase 6.2: Multi-frame capture controls */}
-                      <div className="pt-2 border-t border-slate-700 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Film className="w-3.5 h-3.5 text-purple-400" />
-                            <span className="text-xs font-semibold text-slate-300">Multi-Frame Analysis</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Phase 6.2</span>
-                          </div>
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={useMultiFrame}
-                              onChange={(e) => setUseMultiFrame(e.target.checked)}
-                              className="accent-purple-400"
-                            />
-                            <span className="text-xs text-slate-400">Enable</span>
-                          </label>
-                        </div>
-
-                        {useMultiFrame && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="text-[11px] text-slate-400">
-                                Capture frames from different timestamps to improve mechanic detection.
-                                Min 2, max {MAX_CAPTURE_FRAMES}.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={handleCaptureFrame}
-                                disabled={!previewImage || capturedFrames.length >= MAX_CAPTURE_FRAMES || isExtractingFrame}
-                                className="ml-2 shrink-0 px-2 py-1 rounded bg-purple-600/80 hover:bg-purple-600 text-[10px] font-bold text-white disabled:opacity-40 cursor-pointer"
-                              >
-                                + Capture {seekTime.toFixed(1)}s
-                              </button>
-                            </div>
-
-                            {capturedFrames.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {capturedFrames.map((f, idx) => (
-                                  <div key={idx} className="relative group">
-                                    <img
-                                      src={f.dataUrl}
-                                      alt={`Frame ${idx + 1}`}
-                                      className="w-14 h-10 object-cover rounded border border-slate-700 group-hover:border-rose-500 transition-colors"
-                                    />
-                                    <div className="absolute -top-1.5 -left-1 bg-purple-600 text-white text-[9px] font-mono px-1 rounded">
-                                      {f.timestampS.toFixed(1)}s
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveCapturedFrame(idx)}
-                                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {capturedFrames.length >= 2 && (
-                              <button
-                                type="button"
-                                onClick={handleAnalyzeMultiFrame}
-                                disabled={isAnalyzingMultiFrame}
-                                className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white disabled:opacity-40 cursor-pointer"
-                              >
-                                <Layers className="w-3.5 h-3.5" />
-                                {isAnalyzingMultiFrame
-                                  ? `Analyzing ${capturedFrames.length} frames...`
-                                  : `Analyze ${capturedFrames.length} Frames with Gemini Vision`}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'canvas-sketch' && (
-                <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40 space-y-2">
-                  <p className="text-xs text-slate-300">
-                    Using the current vector drawing from the Draw2Play canvas editor as the multimodal reference.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleUseCurrentSketch}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 cursor-pointer"
-                  >
-                    Refresh Canvas Snapshot
-                  </button>
-                </div>
-              )}
-
-              {/* User Prompt Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
-                  <span>Generation Prompt</span>
-                  <span className="text-[10px] text-slate-500 font-normal">Intent guidance</span>
-                </label>
-                <textarea
-                  ref={promptInputRef}
-                  value={userPrompt}
-                  onChange={(e) => setUserPrompt(e.target.value)}
-                  rows={3}
-                  placeholder="e.g. Create an original playable voxel exploration game inspired by this reference."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-cyan-400 text-xs text-slate-100 placeholder-slate-500 resize-none outline-none"
-                />
-
-                {/* Preset Prompt Buttons */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setUserPrompt('Create an original playable voxel exploration game inspired by this reference.')
-                    }
-                    className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
-                  >
-                    ⛏️ Voxel Game
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setUserPrompt('Generate a challenging 2D platformer level based on this terrain and obstacles.')
-                    }
-                    className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
-                  >
-                    🍄 2D Platformer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setUserPrompt('Design an isometric puzzle dungeon matching this aesthetic and perspective.')
-                    }
-                    className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
-                  >
-                    📐 Isometric Dungeon
-                  </button>
-                  {/* Working Game-Template Selection */}
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-300">Target Game Template</label>
-                      <span className="text-[10px] font-mono text-cyan-400">
-                        {TEMPLATE_REGISTRY[selectedTemplateId]?.category}
-                      </span>
-                    </div>
-                    <select
-                      value={selectedTemplateId}
-                      onChange={(e) => {
-                        const newTmpl = e.target.value as GameTemplateId;
-                        setSelectedTemplateId(newTmpl);
-                        const spec = TEMPLATE_REGISTRY[newTmpl];
-                        if (spec) {
-                          const targetGravity =
-                            spec.allowedWorldSettings.minGravity === 0 &&
-                            spec.allowedWorldSettings.maxGravity === 0
-                              ? 0
-                              : spec.allowedWorldSettings.minGravity || 750;
-                          setPlanGravity(targetGravity);
-                          setPlanPlayerSpeed(240);
-                          setPlanPlayerJump(spec.requiredPlayerConfiguration.requiresJump ? 400 : 0);
-                        }
-                      }}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
-                    >
-                      {Object.values(TEMPLATE_REGISTRY).map((tmpl) => (
-                        <option key={tmpl.id} value={tmpl.id}>
-                          {tmpl.name} ({tmpl.category})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      {TEMPLATE_REGISTRY[selectedTemplateId]?.description}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right: Media Preview Frame */}
-              <div className="flex flex-col border border-slate-800 rounded-xl bg-slate-950/60 overflow-hidden">
-                <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold flex items-center gap-1.5">
-                    <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                    Reference Preview
-                  </span>
-                  {imageMeta && (
-                    <span className="font-mono text-[10px] text-slate-400">
-                      {imageMeta.width}x{imageMeta.height}px ({(imageMeta.sizeBytes / 1024).toFixed(0)} KB)
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex-1 min-h-[220px] flex items-center justify-center p-3 bg-[#05070e]">
-                  {previewImage ? (
-                    <img
-                      src={previewImage}
-                      alt="Reference preview"
-                      className="max-h-[240px] max-w-full object-contain rounded-lg border border-slate-800 shadow-md"
-                    />
-                  ) : (
-                    <div className="text-center text-slate-500 text-xs">
-                      <Upload className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-40" />
-                      <p>No reference loaded yet</p>
-                      <p className="text-[10px] text-slate-600 mt-1">Upload an image or scrub a video frame</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-3 border-t border-slate-800/80 bg-slate-900/40">
-                  {isLifecycleBusy ? (
-                    <div className="space-y-2.5">
+                  {activeTab === 'video-frame' && (
+                    <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40 space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <RotateCw className="w-4 h-4 text-cyan-400 animate-spin" />
-                          <span className="font-semibold text-xs text-cyan-300">
-                            {lifecycle.state === 'validating'
-                              ? 'Stage 1/4: Validating Image Integrity...'
-                              : lifecycle.state === 'uploading'
-                              ? 'Stage 2/4: Preparing Safe Reference Intake...'
-                              : lifecycle.state === 'analyzing'
-                              ? 'Stage 3/4: Vision Analysis via Gemini Provider...'
-                              : 'Stage 4/4: Validating Output Contract...'}
-                          </span>
-                        </div>
+                        <span className="text-xs font-semibold text-slate-300">Choose Short Gameplay Video:</span>
                         <button
                           type="button"
-                          onClick={handleCancelAnalysis}
-                          className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 text-[11px] font-bold text-rose-300 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                          onClick={() => videoInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-semibold cursor-pointer"
                         >
-                          <Ban className="w-3 h-3" />
-                          Cancel
+                          {videoFile ? 'Change Video' : 'Browse Video (MP4/WebM)'}
                         </button>
-                      </div>
-
-                      {/* Real progress bar tied to actual backend stages */}
-                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/60">
-                        <div
-                          className="bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-400 h-full transition-all duration-300 ease-out"
-                          style={{
-                            width: `${
-                              lifecycle.state === 'validating'
-                                ? 25
-                                : lifecycle.state === 'uploading'
-                                ? 50
-                                : lifecycle.state === 'analyzing'
-                                ? 75
-                                : lifecycle.state === 'validating_result'
-                                ? 90
-                                : 10
-                            }%`,
-                          }}
+                        <input
+                          ref={videoInputRef}
+                          type="file"
+                          accept="video/mp4,video/webm"
+                          onChange={handleVideoFileChange}
+                          className="hidden"
                         />
                       </div>
 
-                      {lifecycle.correlationId && (
-                        <div className="font-mono text-[10px] text-slate-500 truncate">
-                          Request ID: {lifecycle.correlationId}
+                      {videoFile && (
+                        <div className="space-y-2 pt-2 border-t border-slate-800">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400">Selected Frame Timestamp:</span>
+                            <span className="font-mono text-cyan-400">{seekTime.toFixed(1)}s / {videoDuration.toFixed(1)}s</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max={videoDuration}
+                            step="0.1"
+                            value={seekTime}
+                            onChange={(e) => handleSeekFrame(parseFloat(e.target.value))}
+                            className="w-full accent-cyan-400 cursor-pointer"
+                          />
+
+                          {/* Phase 6.2: Multi-frame capture controls */}
+                          <div className="pt-2 border-t border-slate-700 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Film className="w-3.5 h-3.5 text-purple-400" />
+                                <span className="text-xs font-semibold text-slate-300">Multi-Frame Analysis</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">Phase 6.2</span>
+                              </div>
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={useMultiFrame}
+                                  onChange={(e) => setUseMultiFrame(e.target.checked)}
+                                  className="accent-purple-400"
+                                />
+                                <span className="text-xs text-slate-400">Enable</span>
+                              </label>
+                            </div>
+
+                            {useMultiFrame && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] text-slate-400">
+                                    Capture frames from different timestamps to improve mechanic detection.
+                                    Min 2, max {MAX_CAPTURE_FRAMES}.
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={handleCaptureFrame}
+                                    disabled={!previewImage || capturedFrames.length >= MAX_CAPTURE_FRAMES || isExtractingFrame}
+                                    className="ml-2 shrink-0 px-2 py-1 rounded bg-purple-600/80 hover:bg-purple-600 text-[10px] font-bold text-white disabled:opacity-40 cursor-pointer"
+                                  >
+                                    + Capture {seekTime.toFixed(1)}s
+                                  </button>
+                                </div>
+
+                                {capturedFrames.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {capturedFrames.map((f, idx) => (
+                                      <div key={idx} className="relative group">
+                                        <img
+                                          src={f.dataUrl}
+                                          alt={`Frame ${idx + 1}`}
+                                          className="w-14 h-10 object-cover rounded border border-slate-700 group-hover:border-rose-500 transition-colors"
+                                        />
+                                        <div className="absolute -top-1.5 -left-1 bg-purple-600 text-white text-[9px] font-mono px-1 rounded">
+                                          {f.timestampS.toFixed(1)}s
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveCapturedFrame(idx)}
+                                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {capturedFrames.length >= 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={handleAnalyzeMultiFrame}
+                                    disabled={isAnalyzingMultiFrame}
+                                    className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white disabled:opacity-40 cursor-pointer"
+                                  >
+                                    <Layers className="w-3.5 h-3.5" />
+                                    {isAnalyzingMultiFrame
+                                      ? `Analyzing ${capturedFrames.length} frames...`
+                                      : `Analyze ${capturedFrames.length} Frames with Gemini Vision`}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
+                  )}
+
+                  {activeTab === 'canvas-sketch' && (
+                    <div className="border border-slate-800 rounded-xl p-4 bg-slate-900/40 space-y-2">
+                      <p className="text-xs text-slate-300">
+                        Using the current vector drawing from the Draw2Play canvas editor as the multimodal reference.
+                      </p>
                       <button
                         type="button"
-                        onClick={handleAnalyze}
-                        disabled={!previewImage || isLifecycleBusy || isExtractingFrame || (useMultiFrame && activeTab === 'video-frame')}
-                        className="flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-950/40 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+                        onClick={handleUseCurrentSketch}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
-                        <span>
-                          {useMultiFrame && activeTab === 'video-frame'
-                            ? 'Use Multi-Frame Button Above ↑'
-                            : 'Analyze Reference & Detect Type'}
-                        </span>
+                        Refresh Canvas Snapshot
                       </button>
-
-                      {analysis && (
-                        <button
-                          type="button"
-                          onClick={() => setCurrentStep('plan-studio')}
-                          className="px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none"
-                        >
-                          <span>Plan Studio</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Cancelled Banner */}
-          {lifecycle.state === 'cancelled' && (
-            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-300 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Analysis request was cancelled. Original image and prompt were preserved.</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleRetry}
-                className="px-2.5 py-1 rounded bg-amber-800 hover:bg-amber-700 text-white font-semibold text-[11px] cursor-pointer"
-              >
-                Restart Analysis
-              </button>
-            </div>
-          )}
+                  {/* User Prompt Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                      <span>Generation Prompt</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Intent guidance</span>
+                    </label>
+                    <textarea
+                      ref={promptInputRef}
+                      value={userPrompt}
+                      onChange={(e) => setUserPrompt(e.target.value)}
+                      rows={3}
+                      placeholder="e.g. Create an original playable voxel exploration game inspired by this reference."
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-cyan-400 text-xs text-slate-100 placeholder-slate-500 resize-none outline-none"
+                    />
 
-          {/* Structured Error Banner */}
-          {lifecycle.state === 'error' && lifecycle.error && (
-            <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-800/80 text-xs space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5">
-                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-rose-200">Analysis Request Failed</span>
-                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700/50">
-                        {lifecycle.error.code}
+                    {/* Preset Prompt Buttons */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUserPrompt('Create an original playable voxel exploration game inspired by this reference.')
+                        }
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
+                      >
+                        ⛏️ Voxel Game
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUserPrompt('Generate a challenging 2D platformer level based on this terrain and obstacles.')
+                        }
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
+                      >
+                        🍄 2D Platformer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUserPrompt('Design an isometric puzzle dungeon matching this aesthetic and perspective.')
+                        }
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 cursor-pointer transition-colors"
+                      >
+                        📐 Isometric Dungeon
+                      </button>
+                      {/* Working Game-Template Selection */}
+                      <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-300">Target Game Template</label>
+                          <span className="text-[10px] font-mono text-cyan-400">
+                            {TEMPLATE_REGISTRY[selectedTemplateId]?.category}
+                          </span>
+                        </div>
+                        <select
+                          value={selectedTemplateId}
+                          onChange={(e) => {
+                            const newTmpl = e.target.value as GameTemplateId;
+                            setSelectedTemplateId(newTmpl);
+                            const spec = TEMPLATE_REGISTRY[newTmpl];
+                            if (spec) {
+                              const targetGravity =
+                                spec.allowedWorldSettings.minGravity === 0 &&
+                                  spec.allowedWorldSettings.maxGravity === 0
+                                  ? 0
+                                  : spec.allowedWorldSettings.minGravity || 750;
+                              setPlanGravity(targetGravity);
+                              setPlanPlayerSpeed(240);
+                              setPlanPlayerJump(spec.requiredPlayerConfiguration.requiresJump ? 400 : 0);
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
+                        >
+                          {Object.values(TEMPLATE_REGISTRY).map((tmpl) => (
+                            <option key={tmpl.id} value={tmpl.id}>
+                              {tmpl.name} ({tmpl.category})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-slate-400 leading-snug">
+                          {TEMPLATE_REGISTRY[selectedTemplateId]?.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Media Preview Frame */}
+                  <div className="flex flex-col border border-slate-800 rounded-xl bg-slate-950/60 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
+                      <span className="font-semibold flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                        Reference Preview
                       </span>
-                      {lifecycle.error.correlationId && (
-                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                          Corr: {lifecycle.error.correlationId}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        {imageMeta && (
+                          <span className="font-mono text-[10px] text-slate-400">
+                            {imageMeta.width}x{imageMeta.height}px ({(imageMeta.sizeBytes / 1024).toFixed(0)} KB)
+                          </span>
+                        )}
+                        {previewImage && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveImage}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-semibold cursor-pointer transition-colors"
+                            title="Remove uploaded reference"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-h-[220px] flex items-center justify-center p-3 bg-[#05070e]">
+                      {previewImage ? (
+                        <img
+                          src={previewImage}
+                          alt="Reference preview"
+                          className="max-h-[240px] max-w-full object-contain rounded-lg border border-slate-800 shadow-md"
+                        />
+                      ) : (
+                        <div className="text-center text-slate-500 text-xs">
+                          <Upload className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-40" />
+                          <p>No reference loaded yet</p>
+                          <p className="text-[10px] text-slate-600 mt-1">Upload an image or scrub a video frame</p>
+                        </div>
                       )}
                     </div>
-                    <p className="text-rose-300 text-xs leading-relaxed">{lifecycle.error.message}</p>
+
+                    <div className="p-3 border-t border-slate-800/80 bg-slate-900/40">
+                      {isLifecycleBusy ? (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <RotateCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                              <span className="font-semibold text-xs text-cyan-300">
+                                {lifecycle.state === 'validating'
+                                  ? 'Stage 1/4: Validating Image Integrity...'
+                                  : lifecycle.state === 'uploading'
+                                    ? 'Stage 2/4: Preparing Safe Reference Intake...'
+                                    : lifecycle.state === 'analyzing'
+                                      ? 'Stage 3/4: Vision AI Analysis (Gemini / Hugging Face)...'
+                                      : 'Stage 4/4: Validating Output Contract...'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCancelAnalysis}
+                              className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 text-[11px] font-bold text-rose-300 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Ban className="w-3 h-3" />
+                              Cancel
+                            </button>
+                          </div>
+
+                          {/* Real progress bar tied to actual backend stages */}
+                          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/60">
+                            <div
+                              className="bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-400 h-full transition-all duration-300 ease-out"
+                              style={{
+                                width: `${lifecycle.state === 'validating'
+                                    ? 25
+                                    : lifecycle.state === 'uploading'
+                                      ? 50
+                                      : lifecycle.state === 'analyzing'
+                                        ? 75
+                                        : lifecycle.state === 'validating_result'
+                                          ? 90
+                                          : 10
+                                  }%`,
+                              }}
+                            />
+                          </div>
+
+                          {lifecycle.correlationId && (
+                            <div className="font-mono text-[10px] text-slate-500 truncate">
+                              Request ID: {lifecycle.correlationId}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleAnalyze}
+                            disabled={!previewImage || isLifecycleBusy || isExtractingFrame || (useMultiFrame && activeTab === 'video-frame')}
+                            className="flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-950/40 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
+                            <span>
+                              {useMultiFrame && activeTab === 'video-frame'
+                                ? 'Use Multi-Frame Button Above ↑'
+                                : 'Analyze Image & Detect Game Type'}
+                            </span>
+                          </button>
+
+                          {analysis && (
+                            <button
+                              type="button"
+                              onClick={() => setCurrentStep('plan-studio')}
+                              className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-black font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-md focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
+                            >
+                              <Gamepad2 className="w-3.5 h-3.5" />
+                              <span>Generate Playable Game</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Recovery Actions */}
-              <div className="flex items-center gap-2 pt-2 border-t border-rose-900/60 flex-wrap">
-                {lifecycle.error.isRetryable && (
+              {/* Cancelled Banner */}
+              {lifecycle.state === 'cancelled' && (
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-300 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Analysis request was cancelled. Original image and prompt were preserved.</span>
+                  </div>
                   <button
                     type="button"
                     onClick={handleRetry}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+                    className="px-2.5 py-1 rounded bg-amber-800 hover:bg-amber-700 text-white font-semibold text-[11px] cursor-pointer"
                   >
-                    <RotateCw className="w-3.5 h-3.5" />
-                    Retry Live Analysis
+                    Restart Analysis
                   </button>
-                )}
+                </div>
+              )}
 
-                {lifecycle.error.canFallbackToHeuristic && (
-                  <button
-                    type="button"
-                    onClick={handleUseHeuristic}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
-                  >
-                    <Cpu className="w-3.5 h-3.5" />
-                    Use Offline Heuristic
-                  </button>
-                )}
+              {/* Structured Error Banner */}
+              {lifecycle.state === 'error' && lifecycle.error && (
+                <div className="p-4 rounded-xl bg-rose-950/50 border border-rose-800/80 text-xs space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-rose-200">Analysis Request Failed</span>
+                          <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700/50">
+                            {lifecycle.error.code}
+                          </span>
+                          {lifecycle.error.correlationId && (
+                            <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
+                              Corr: {lifecycle.error.correlationId}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-rose-300 text-xs leading-relaxed">{lifecycle.error.message}</p>
+                      </div>
+                    </div>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={handleEditInput}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                  Edit Input
-                </button>
-              </div>
+                  {/* Recovery Actions */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-rose-900/60 flex-wrap">
+                    {lifecycle.error.isRetryable && (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                        Retry Live Analysis
+                      </button>
+                    )}
+
+                    {lifecycle.error.canFallbackToHeuristic && (
+                      <button
+                        type="button"
+                        onClick={handleUseHeuristic}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+                      >
+                        <Cpu className="w-3.5 h-3.5" />
+                        Use Offline Heuristic
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleEditInput}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      Edit Input
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback Error / Notice Banners */}
+              {errorMessage && lifecycle.state !== 'error' && (
+                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {noticeMessage && (
+                <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/50 text-xs text-amber-300 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>{noticeMessage}</span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Fallback Error / Notice Banners */}
-          {errorMessage && lifecycle.state !== 'error' && (
-            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {noticeMessage && (
-            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/50 text-xs text-amber-300 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>{noticeMessage}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ================================================================ */}
-      {/* STEP 2: PLAN STUDIO                                             */}
-      {/* ================================================================ */}
-      {currentStep === 'plan-studio' && analysis && (
+          {/* ================================================================ */}
+          {/* STEP 2: PLAN STUDIO                                             */}
+          {/* ================================================================ */}
+          {currentStep === 'plan-studio' && analysis && (
             <div className="border border-slate-800 rounded-xl bg-slate-900/40 p-5 space-y-5 animate-in fade-in duration-200">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-sm text-white">Visual Reference Analysis</span>
                   {/* Truthful Provenance badge */}
                   <span
-                    className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
-                      analysis.provenance === 'gemini-vision'
+                    className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${analysis.provenance === 'gemini-vision'
                         ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                        : analysis.provenance === 'mock-heuristic'
-                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
-                    }`}
+                        : analysis.provenance === 'huggingface-vision'
+                          ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+                          : analysis.provenance === 'mock-heuristic'
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}
                   >
                     {analysis.provenance === 'gemini-vision' ? (
                       <>
                         <Sparkles className="w-3 h-3 text-cyan-300" />
-                        <span>Google Gemini Vision (Live AI)</span>
+                        <span>Gemini AI</span>
+                      </>
+                    ) : analysis.provenance === 'huggingface-vision' ? (
+                      <>
+                        <Sparkles className="w-3 h-3 text-yellow-300" />
+                        <span>Hugging Face AI</span>
                       </>
                     ) : analysis.provenance === 'mock-heuristic' ? (
                       <>
                         <Cpu className="w-3 h-3 text-amber-300" />
-                        <span>Deterministic Local Heuristic (Offline)</span>
+                        <span>Offline Analysis</span>
                       </>
                     ) : (
-                      <span>Development Mock</span>
+                      <span>Offline Analysis</span>
                     )}
                     {analysis.frameCount > 1 ? ` · ${analysis.frameCount} frames` : ''}
                   </span>
@@ -1438,13 +1480,22 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={handleGeneratePlan}
+                    disabled={isGeneratingPlan || (compatibilityReport !== null && !compatibilityReport.isCompatible)}
+                    className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-black text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-40"
+                  >
+                    <Gamepad2 className="w-3.5 h-3.5" />
+                    <span>{isGeneratingPlan ? 'Generating...' : 'Generate Playable Game'}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleBackToIntake}
                     className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
                   >
                     <ArrowLeft className="w-3 h-3" />
                     <span>Intake</span>
                   </button>
-                  <span className="text-[11px] text-slate-400">
+                  <span className="text-[11px] text-slate-400 hidden sm:inline">
                     {new Date(analysis.analyzedAt).toLocaleTimeString()}
                   </span>
                 </div>
@@ -1456,11 +1507,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setAnalysisSubTab('observed')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    analysisSubTab === 'observed'
+                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${analysisSubTab === 'observed'
                       ? 'bg-cyan-500 text-black shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
                   <span>Observed Evidence</span>
@@ -1468,11 +1518,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setAnalysisSubTab('proposed')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    analysisSubTab === 'proposed'
+                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${analysisSubTab === 'proposed'
                       ? 'bg-purple-500 text-white shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>Proposed Game Design</span>
@@ -1480,11 +1529,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setAnalysisSubTab('template-plan')}
-                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    analysisSubTab === 'template-plan'
+                  className={`flex-1 py-1.5 px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${analysisSubTab === 'template-plan'
                       ? 'bg-emerald-500 text-black shadow-md'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <Sliders className="w-3.5 h-3.5" />
                   <span>Template & Plan Studio</span>
@@ -1981,10 +2029,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                       type="button"
                       onClick={handleGeneratePlan}
                       disabled={isGeneratingPlan || (compatibilityReport !== null && !compatibilityReport.isCompatible)}
-                      className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black shadow-lg shadow-cyan-950/40 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full py-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 hover:from-emerald-300 hover:to-cyan-300 text-black shadow-xl shadow-cyan-950/50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <FileCode className="w-3.5 h-3.5" />
-                      <span>{isGeneratingPlan ? 'Validating & Synthesizing Intermediate Plan...' : 'Generate Validated Game Plan'}</span>
+                      <Gamepad2 className="w-4 h-4 fill-current" />
+                      <span>{isGeneratingPlan ? 'Configuring Template & Synthesizing Game...' : 'Generate Playable Game'}</span>
                     </button>
                   </div>
                 </div>
@@ -2021,11 +2069,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   <span
-                    className={`text-xs font-mono font-bold px-3 py-1 rounded-full uppercase border ${
-                      generatedPlan.status === 'ready-for-2d-generation'
+                    className={`text-xs font-mono font-bold px-3 py-1 rounded-full uppercase border ${generatedPlan.status === 'ready-for-2d-generation'
                         ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                         : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                    }`}
+                      }`}
                   >
                     {generatedPlan.status === 'ready-for-2d-generation' ? '✓ Ready to Play' : generatedPlan.status}
                   </span>
@@ -2223,11 +2270,10 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
 
                       <div className="flex items-center gap-2">
                         {assetBundle && (
-                          <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border ${
-                            assetBundle.provenance === 'gemini-imagen'
+                          <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border ${assetBundle.provenance === 'gemini-imagen'
                               ? 'bg-purple-500/15 text-purple-300 border-purple-500/40'
                               : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
-                          }`}>
+                            }`}>
                             {assetBundle.provenance === 'gemini-imagen' ? '✦ AI Generated Art' : '⟐ Procedural Pixel Art'}
                           </span>
                         )}
@@ -2305,19 +2351,18 @@ export const ReferenceIntakeModal: React.FC<ReferenceIntakeModalProps> = ({
                               {/* Provenance Badge */}
                               <div className="text-center">
                                 <span
-                                  className={`inline-block text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                                    asset?.provenance === 'gemini-imagen'
+                                  className={`inline-block text-[9px] font-mono px-1.5 py-0.5 rounded ${asset?.provenance === 'gemini-imagen'
                                       ? 'bg-purple-500/20 text-purple-300 border border-purple-600/30'
                                       : asset?.provenance === 'procedural-fallback'
-                                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-600/30'
-                                      : 'bg-slate-800 text-slate-400'
-                                  }`}
+                                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-600/30'
+                                        : 'bg-slate-800 text-slate-400'
+                                    }`}
                                 >
                                   {asset?.provenance === 'gemini-imagen'
                                     ? 'AI'
                                     : asset?.provenance === 'procedural-fallback'
-                                    ? 'Fallback'
-                                    : 'Default'}
+                                      ? 'Fallback'
+                                      : 'Default'}
                                 </span>
                               </div>
 

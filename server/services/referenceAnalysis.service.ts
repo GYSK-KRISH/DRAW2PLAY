@@ -17,8 +17,12 @@ import { assertValidGamePlan } from '../../src/utils/planValidator.js';
 import { checkTemplateCompatibility } from '../../src/templates/templateRegistry.js';
 import { generateTemplateLevel } from '../../src/generators/templateGenerators.js';
 
-/** Maximum milliseconds to wait for a Gemini vision call before falling back */
-const GEMINI_VISION_TIMEOUT_MS = 18_000;
+import { serverConfig } from '../config.js';
+import { AiProviderError } from '../providers/types.js';
+import { sanitizeHfErrorMessage } from '../providers/huggingface.provider.js';
+
+/** Maximum milliseconds to wait for a Gemini vision call before falling back (configurable, default 35s) */
+const GEMINI_VISION_TIMEOUT_MS = serverConfig.geminiTimeoutMs || 35_000;
 
 /**
  * Compute overall analysis confidence tier from mechanics confidence scores and provenance.
@@ -118,6 +122,290 @@ function synthesizeEvidenceAndDesign(
 }
 
 /**
+ * Safely normalizes an overlong string to fit within maxLen.
+ * 1. Trims whitespace and collapses consecutive spaces.
+ * 2. If length <= maxLen, returns the cleaned string unchanged.
+ * 3. If length > maxLen, cuts cleanly before maxLen without breaking words:
+ *    - Looks for clause boundaries (punctuation like . , ; :) in the upper 50%
+ *    - Looks for word boundaries (space) and avoids leaving trailing conjunctions / prepositions
+ *    - Ensures the final result is strictly <= maxLen characters and retains semantic meaning.
+ */
+export function normalizeStringLength(text: unknown, maxLen: number, fallback = ''): string {
+  if (typeof text !== 'string') {
+    return typeof text === 'number' || typeof text === 'boolean'
+      ? String(text).slice(0, maxLen)
+      : fallback;
+  }
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (trimmed.length <= maxLen) {
+    return trimmed;
+  }
+
+  const slice = trimmed.slice(0, maxLen);
+
+  // Look for natural punctuation break in the latter portion (>= 45% of maxLen)
+  const lastPunct = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf(', '),
+    slice.lastIndexOf('; '),
+    slice.lastIndexOf(': ')
+  );
+  if (lastPunct >= Math.floor(maxLen * 0.45)) {
+    return slice.slice(0, lastPunct).replace(/[,;:\s]+$/, '').trim();
+  }
+
+  // Look for word boundary (space)
+  const lastSpace = slice.lastIndexOf(' ');
+  if (lastSpace >= Math.floor(maxLen * 0.35)) {
+    let result = slice.slice(0, lastSpace).trim();
+    // Strip trailing conjunctions, prepositions, and articles
+    result = result.replace(/\s+(?:and|or|with|of|in|to|for|the|a|an)$/i, '');
+    result = result.replace(/[,;:\-\s]+$/, '').trim();
+    return result;
+  }
+
+  // Fallback: hard slice if a single unbroken word exceeds maxLen
+  return slice.trim();
+}
+
+/**
+ * Normalizes a raw model response payload to guarantee that strings conform
+ * to the exact length bounds of ReferenceAnalysisSchema before strict validation.
+ * Preserves factual observations and does NOT fabricate visual details or weaken schemas.
+ */
+export function normalizeReferenceAnalysisPayload(
+  raw: Record<string, unknown>
+): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object') {
+    return raw;
+  }
+
+  const out: Record<string, unknown> = { ...raw };
+
+  // 1. visualStyle (min 1, max 120)
+  if (typeof out.visualStyle === 'string') {
+    out.visualStyle = normalizeStringLength(out.visualStyle, 120, '2D Visual Style');
+  }
+
+  // 2. terrainLayout (max 300)
+  if (typeof out.terrainLayout === 'string') {
+    out.terrainLayout = normalizeStringLength(out.terrainLayout, 300, 'Visible terrain layout');
+  }
+
+  // 3. visibleObjects (array of strings, each max 80, array max 15)
+  if (Array.isArray(out.visibleObjects)) {
+    out.visibleObjects = out.visibleObjects
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => normalizeStringLength(item, 80))
+      .filter((item) => item.length > 0)
+      .slice(0, 15);
+  }
+
+  // 4. suggestedRoles (player max 80, obstacles/collectibles/goals max 80)
+  if (out.suggestedRoles && typeof out.suggestedRoles === 'object') {
+    const roles = out.suggestedRoles as Record<string, unknown>;
+    const normRoles: Record<string, unknown> = {};
+
+    if (typeof roles.player === 'string') {
+      normRoles.player = normalizeStringLength(roles.player, 80);
+    }
+    if (Array.isArray(roles.obstacles)) {
+      normRoles.obstacles = roles.obstacles
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => normalizeStringLength(item, 80))
+        .slice(0, 10);
+    }
+    if (Array.isArray(roles.collectibles)) {
+      normRoles.collectibles = roles.collectibles
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => normalizeStringLength(item, 80))
+        .slice(0, 10);
+    }
+    if (Array.isArray(roles.goals)) {
+      normRoles.goals = roles.goals
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => normalizeStringLength(item, 80))
+        .slice(0, 5);
+    }
+    out.suggestedRoles = normRoles;
+  }
+
+  // 5. uncertaintiesAndWarnings (array of max 300, max 8)
+  if (Array.isArray(out.uncertaintiesAndWarnings)) {
+    out.uncertaintiesAndWarnings = out.uncertaintiesAndWarnings
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => normalizeStringLength(item, 300))
+      .slice(0, 8);
+  }
+
+  // 6. inferredMechanics (array of InferredMechanic, name max 60, desc max 250, obsEv max 200, suppObs max 150)
+  if (Array.isArray(out.inferredMechanics)) {
+    out.inferredMechanics = out.inferredMechanics
+      .filter((m): m is Record<string, unknown> => m !== null && typeof m === 'object')
+      .slice(0, 8)
+      .map((m) => {
+        const obs = Array.isArray(m.observationalEvidence)
+          ? m.observationalEvidence
+              .filter((e): e is string => typeof e === 'string' && e.trim().length > 0)
+              .map((e) => normalizeStringLength(e, 200))
+              .slice(0, 6)
+          : [];
+        const supp = Array.isArray(m.supportingObservations)
+          ? m.supportingObservations
+              .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+              .map((s) => normalizeStringLength(s, 150))
+              .slice(0, 5)
+          : [];
+
+        return {
+          ...m,
+          name: normalizeStringLength(m.name, 60, 'Mechanic'),
+          description: normalizeStringLength(m.description, 250, 'Hypothetical mechanic'),
+          confidence: typeof m.confidence === 'number' ? Math.max(0, Math.min(1, m.confidence)) : 0.7,
+          observationalEvidence: obs.length > 0 ? obs : ['Visual cues in reference'],
+          supportingObservations: supp,
+        };
+      });
+  }
+
+  // 7. observedEvidence
+  if (out.observedEvidence && typeof out.observedEvidence === 'object') {
+    const oe = out.observedEvidence as Record<string, unknown>;
+    const normOe: Record<string, unknown> = { ...oe };
+
+    const normStrArr = (arr: unknown, maxLen: number, maxCount: number): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => normalizeStringLength(item, maxLen))
+        .slice(0, maxCount);
+    };
+
+    normOe.majorShapesAndBoundaries = normStrArr(oe.majorShapesAndBoundaries, 100, 15);
+    normOe.platformsAndFloors = normStrArr(oe.platformsAndFloors, 100, 15);
+    normOe.wallsAndCorridors = normStrArr(oe.wallsAndCorridors, 100, 15);
+    normOe.visibleCharactersAndObjects = normStrArr(oe.visibleCharactersAndObjects, 80, 15);
+    normOe.visibleHazards = normStrArr(oe.visibleHazards, 80, 10);
+    normOe.visibleCollectibles = normStrArr(oe.visibleCollectibles, 80, 10);
+    normOe.relativeSpatialLayout = normalizeStringLength(oe.relativeSpatialLayout, 300, '');
+    normOe.visualStyle = normalizeStringLength(oe.visualStyle, 120, '2D Visual Style');
+    normOe.uncertainAndOccludedRegions = normStrArr(oe.uncertainAndOccludedRegions, 200, 8);
+
+    out.observedEvidence = normOe;
+  }
+
+  // 8. proposedDesign
+  if (out.proposedDesign && typeof out.proposedDesign === 'object') {
+    const pd = out.proposedDesign as Record<string, unknown>;
+    const normPd: Record<string, unknown> = { ...pd };
+
+    if (pd.playerAbilitiesAndMovement && typeof pd.playerAbilitiesAndMovement === 'object') {
+      const pam = pd.playerAbilitiesAndMovement as Record<string, unknown>;
+      normPd.playerAbilitiesAndMovement = {
+        movementType: normalizeStringLength(pam.movementType, 60, 'Run and Jump'),
+        abilities: Array.isArray(pam.abilities)
+          ? pam.abilities
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .map((item) => normalizeStringLength(item, 50))
+              .slice(0, 6)
+          : ['walk', 'run', 'jump'],
+      };
+    }
+
+    if (typeof pd.coreGameplayLoop === 'string') {
+      normPd.coreGameplayLoop = normalizeStringLength(pd.coreGameplayLoop, 300);
+    }
+
+    if (pd.objectivesAndConditions && typeof pd.objectivesAndConditions === 'object') {
+      const oac = pd.objectivesAndConditions as Record<string, unknown>;
+      normPd.objectivesAndConditions = {
+        primaryObjective: normalizeStringLength(oac.primaryObjective, 150, 'Reach the goal'),
+        winConditions: Array.isArray(oac.winConditions)
+          ? oac.winConditions
+              .filter((w): w is string => typeof w === 'string' && w.trim().length > 0)
+              .map((w) => normalizeStringLength(w, 100))
+              .slice(0, 5)
+          : ['Reach the goal'],
+        loseConditions: Array.isArray(oac.loseConditions)
+          ? oac.loseConditions
+              .filter((l): l is string => typeof l === 'string' && l.trim().length > 0)
+              .map((l) => normalizeStringLength(l, 100))
+              .slice(0, 5)
+          : ['Fall into hazards'],
+      };
+    }
+
+    if (Array.isArray(pd.proposedEnemiesAndHazards)) {
+      normPd.proposedEnemiesAndHazards = pd.proposedEnemiesAndHazards
+        .filter((e): e is Record<string, unknown> => e !== null && typeof e === 'object')
+        .slice(0, 6)
+        .map((e) => ({
+          name: normalizeStringLength(e.name, 60, 'Obstacle'),
+          behaviorProposal: normalizeStringLength(e.behaviorProposal, 200, 'Hazard behavior'),
+        }));
+    }
+
+    if (Array.isArray(pd.proposedCollectibles)) {
+      normPd.proposedCollectibles = pd.proposedCollectibles
+        .filter((c): c is Record<string, unknown> => c !== null && typeof c === 'object')
+        .slice(0, 6)
+        .map((c) => ({
+          name: normalizeStringLength(c.name, 60, 'Collectible'),
+          interactionProposal: normalizeStringLength(c.interactionProposal, 200, 'Score reward'),
+        }));
+    }
+
+    if (pd.difficultyProgression && typeof pd.difficultyProgression === 'object') {
+      const dp = pd.difficultyProgression as Record<string, unknown>;
+      normPd.difficultyProgression = {
+        tier: dp.tier === 'easy' || dp.tier === 'hard' ? dp.tier : 'medium',
+        pacingNotes: normalizeStringLength(dp.pacingNotes, 200, 'Standard pacing'),
+      };
+    }
+
+    if (pd.audioVisualFeedback && typeof pd.audioVisualFeedback === 'object') {
+      const avf = pd.audioVisualFeedback as Record<string, unknown>;
+      normPd.audioVisualFeedback = {
+        visualStyleCues: Array.isArray(avf.visualStyleCues)
+          ? avf.visualStyleCues
+              .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+              .map((c) => normalizeStringLength(c, 80))
+              .slice(0, 6)
+          : [],
+        suggestedAudioMood: normalizeStringLength(avf.suggestedAudioMood, 100, 'Chiptune upbeat'),
+      };
+    }
+
+    out.proposedDesign = normPd;
+  }
+
+  // 9. Multi-frame frameResults if present
+  if (Array.isArray(out.frameResults)) {
+    out.frameResults = out.frameResults
+      .filter((fr): fr is Record<string, unknown> => fr !== null && typeof fr === 'object')
+      .slice(0, 10)
+      .map((fr) => ({
+        ...fr,
+        visibleObjects: Array.isArray(fr.visibleObjects)
+          ? fr.visibleObjects
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .map((item) => normalizeStringLength(item, 80))
+              .slice(0, 15)
+          : [],
+        terrainNotes: normalizeStringLength(fr.terrainNotes, 200, 'Terrain observation'),
+        uniqueObservations: Array.isArray(fr.uniqueObservations)
+          ? fr.uniqueObservations
+              .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+              .map((item) => normalizeStringLength(item, 150))
+              .slice(0, 8)
+          : [],
+      }));
+  }
+
+  return out;
+}
+
+/**
  * Analyzes a single reference image using live Gemini Vision through the AI provider adapter.
  *
  * Stage 2 rules:
@@ -127,7 +415,8 @@ function synthesizeEvidenceAndDesign(
 export async function analyzeReferenceWithGemini(
   imageBase64: string,
   userPrompt?: string,
-  correlationId?: string
+  correlationId?: string,
+  options?: { timeoutMs?: number; signal?: AbortSignal }
 ): Promise<ReferenceAnalysis> {
   const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
   if (!provider.isConfigured()) {
@@ -214,21 +503,26 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
   "recommendedPipeline": "phaser-2d" | "future-3d-engine" | "unsupported"
 }`;
 
+  const timeoutMs = options?.timeoutMs || serverConfig.geminiTimeoutMs || GEMINI_VISION_TIMEOUT_MS;
   const result = await provider.execute({
     capability: 'image-understanding',
     prompt,
     imageBase64,
-    timeoutMs: GEMINI_VISION_TIMEOUT_MS,
+    timeoutMs,
     correlationId,
+    signal: options?.signal,
   });
 
   const responseText = result.rawText || '';
   const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
   const parsed = JSON.parse(cleaned);
 
+  // Normalize parsed payload to guarantee safe bounds for all schema strings
+  const normalizedParsed = normalizeReferenceAnalysisPayload(parsed);
+
   // Ensure every mechanic has observationalEvidence (backfill from supportingObservations if missing)
-  const inferredMechanics: ReferenceAnalysis['inferredMechanics'] = Array.isArray(parsed.inferredMechanics)
-    ? parsed.inferredMechanics.map((m: Record<string, unknown>) => ({
+  const inferredMechanics: ReferenceAnalysis['inferredMechanics'] = Array.isArray(normalizedParsed.inferredMechanics)
+    ? (normalizedParsed.inferredMechanics as Record<string, unknown>[]).map((m: Record<string, unknown>) => ({
         name: String(m.name || 'Inferred Mechanic'),
         description: String(m.description || 'Hypothetical mechanic'),
         confidence: Math.max(0, Math.min(1, Number(m.confidence) || 0.6)),
@@ -245,19 +539,19 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
     : [];
 
   const { observedEvidence, proposedDesign } = synthesizeEvidenceAndDesign(
-    parsed,
-    parsed.category || '2d-platformer',
-    parsed.cameraPerspective || 'side-scrolling-2d',
-    parsed.visualStyle || '2D Pixel Art',
-    Array.isArray(parsed.colorPalette) ? parsed.colorPalette : ['#38bdf8', '#22c55e', '#ef4444'],
-    Array.isArray(parsed.visibleObjects) ? parsed.visibleObjects : ['Platform', 'Ground'],
-    parsed.terrainLayout || 'Visible ground and platform geometry.',
-    parsed.suggestedRoles || {},
+    normalizedParsed,
+    (normalizedParsed.category as ReferenceAnalysis['category']) || '2d-platformer',
+    (normalizedParsed.cameraPerspective as ReferenceAnalysis['cameraPerspective']) || 'side-scrolling-2d',
+    (normalizedParsed.visualStyle as string) || '2D Pixel Art',
+    Array.isArray(normalizedParsed.colorPalette) ? (normalizedParsed.colorPalette as string[]) : ['#38bdf8', '#22c55e', '#ef4444'],
+    Array.isArray(normalizedParsed.visibleObjects) ? (normalizedParsed.visibleObjects as string[]) : ['Platform', 'Ground'],
+    (normalizedParsed.terrainLayout as string) || 'Visible ground and platform geometry.',
+    (normalizedParsed.suggestedRoles as ReferenceAnalysis['suggestedRoles']) || {},
     inferredMechanics
   );
 
-  const analysisPayload = {
-    ...parsed,
+  const analysisPayload = normalizeReferenceAnalysisPayload({
+    ...normalizedParsed,
     schemaVersion: '2.0',
     provenance: 'gemini-vision' as const,
     modelProvenance: result.metadata.model || provider.defaultModel,
@@ -268,11 +562,442 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
     inferredMechanics,
     observedEvidence,
     proposedDesign,
-  };
+  });
 
   const validated = ReferenceAnalysisSchema.parse(analysisPayload);
   validated.analysisConfidenceTier = computeConfidenceTier(validated.inferredMechanics, validated.provenance);
   return validated;
+}
+
+/**
+ * Analyzes a single reference image using live Hugging Face Vision (e.g. Qwen2.5-VL-3B-Instruct).
+ * Normalizes all output strings before final validation against ReferenceAnalysisSchema.
+ */
+export async function analyzeReferenceWithHuggingFace(
+  imageBase64: string,
+  userPrompt?: string,
+  correlationId?: string,
+  options?: { timeoutMs?: number; signal?: AbortSignal }
+): Promise<ReferenceAnalysis> {
+  const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'huggingface');
+  if (!provider.isConfigured()) {
+    throw new Error('HF_TOKEN is not configured on the server');
+  }
+
+  const prompt = `You are a principal game engine architect and computer vision analyst for Draw2Play AI.
+
+Analyze this visual reference image (screenshot, video frame, or concept art) with strict epistemological discipline.
+
+${userPrompt ? `User's Goal / Context: "${userPrompt}"` : ''}
+
+## OBSERVATION VS INFERENCE RULES (MANDATORY)
+1. OBSERVATIONS are facts directly visible in this image: colors, shapes, boundaries, platforms, walls, corridors, visible objects.
+2. INFERENCES are creative hypotheses about game design derived from observations. NEVER present an inference as an established fact. A static screenshot cannot prove hidden rules, physics constants, or dynamic mechanics.
+3. Mark all inferred mechanics as proposals, not observations. Each inferred mechanic MUST cite concrete visual facts in "observationalEvidence".
+
+## CLASSIFICATION RULES
+- Voxels/cubes/3D blocks → category "voxel", camera "first-person-3d", recommendedPipeline "future-3d-engine"
+- 2D side-scrolling platformer → category "2d-platformer", camera "side-scrolling-2d", recommendedPipeline "phaser-2d"
+- Top-down 2D → category "top-down-2d", camera "top-down-2d", recommendedPipeline "phaser-2d"
+- Puzzle room → category "puzzle", camera "side-scrolling-2d", recommendedPipeline "phaser-2d"
+- Isometric → category "isometric", camera "isometric", recommendedPipeline "future-3d-engine"
+- 3D third-person → category "3d-world", camera "third-person-3d", recommendedPipeline "future-3d-engine"
+
+Respond with STRICT JSON (no markdown fences, no trailing commas):
+{
+  "schemaVersion": "2.0",
+  "category": "<GameCategory>",
+  "cameraPerspective": "<CameraPerspective>",
+  "visualStyle": "Short art-style description (e.g. Pixel Art, Low-Poly 3D, Minimalist Vector)",
+  "colorPalette": ["#hex1", "#hex2", "#hex3", "#hex4"],
+  "visibleObjects": ["list", "of", "directly", "observed", "elements"],
+  "terrainLayout": "Factual summary of visible ground, platforms, or height variations",
+  "suggestedRoles": {
+    "player": "Visible player avatar or focal point if identifiable, else omit",
+    "obstacles": ["only list items visibly present"],
+    "collectibles": ["only list items visibly present"],
+    "goals": ["only list items visibly present"]
+  },
+  "inferredMechanics": [
+    {
+      "name": "Mechanic name",
+      "description": "Hypothesis: How this mechanic may work. Framed as inference, not fact.",
+      "confidence": 0.1_to_0.95,
+      "observationalEvidence": ["Visual fact directly seen in the image that supports this inference"],
+      "supportingObservations": ["Additional context or cross-reference"]
+    }
+  ],
+  "observedEvidence": {
+    "majorShapesAndBoundaries": ["list of major shapes and boundaries"],
+    "platformsAndFloors": ["visible platforms, floors, and open areas"],
+    "wallsAndCorridors": ["visible walls and corridors"],
+    "visibleCharactersAndObjects": ["visible characters and landmarks"],
+    "visibleHazards": ["visible hazard shapes"],
+    "visibleCollectibles": ["visible collectible shapes"],
+    "relativeSpatialLayout": "Factual description of relative object positioning",
+    "dominantColors": ["#hex1", "#hex2"],
+    "visualStyle": "Art style description",
+    "uncertainAndOccludedRegions": ["ambiguous, low-contrast, or occluded areas"]
+  },
+  "proposedDesign": {
+    "suggestedGenre": "<GameCategory>",
+    "cameraPerspective": "<CameraPerspective>",
+    "playerAbilitiesAndMovement": {
+      "movementType": "movement description",
+      "abilities": ["walk", "run", "jump"]
+    },
+    "coreGameplayLoop": "Proposed loop description",
+    "objectivesAndConditions": {
+      "primaryObjective": "primary objective",
+      "winConditions": ["win condition 1"],
+      "loseConditions": ["lose condition 1"]
+    },
+    "proposedEnemiesAndHazards": [{"name": "Enemy name", "behaviorProposal": "behavior"}],
+    "proposedCollectibles": [{"name": "Collectible name", "interactionProposal": "interaction"}],
+    "difficultyProgression": {"tier": "medium", "pacingNotes": "pacing notes"},
+    "audioVisualFeedback": {"visualStyleCues": ["cue"], "suggestedAudioMood": "audio mood"}
+  },
+  "uncertaintiesAndWarnings": [
+    "What cannot be confirmed from this single reference",
+    "Any notable ambiguities"
+  ],
+  "recommendedPipeline": "phaser-2d" | "future-3d-engine" | "unsupported"
+}`;
+
+  const timeoutMs = options?.timeoutMs || serverConfig.hfTimeoutMs || 35_000;
+  const result = await provider.execute({
+    capability: 'image-understanding',
+    prompt,
+    imageBase64,
+    timeoutMs,
+    correlationId,
+    signal: options?.signal,
+  });
+
+  const responseText = result.rawText || '';
+  const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  // Normalize parsed payload to guarantee safe bounds for all schema strings
+  const normalizedParsed = normalizeReferenceAnalysisPayload(parsed);
+
+  // Ensure every mechanic has observationalEvidence
+  const inferredMechanics: ReferenceAnalysis['inferredMechanics'] = Array.isArray(normalizedParsed.inferredMechanics)
+    ? (normalizedParsed.inferredMechanics as Record<string, unknown>[]).map((m: Record<string, unknown>) => ({
+        name: String(m.name || 'Inferred Mechanic'),
+        description: String(m.description || 'Hypothetical mechanic'),
+        confidence: Math.max(0, Math.min(1, Number(m.confidence) || 0.6)),
+        observationalEvidence:
+          Array.isArray(m.observationalEvidence) && m.observationalEvidence.length > 0
+            ? m.observationalEvidence.map(String)
+            : Array.isArray(m.supportingObservations) && m.supportingObservations.length > 0
+            ? m.supportingObservations.slice(0, 3).map(String)
+            : ['Visual cues present in reference image'],
+        supportingObservations: Array.isArray(m.supportingObservations)
+          ? m.supportingObservations.map(String)
+          : [],
+      }))
+    : [];
+
+  const { observedEvidence, proposedDesign } = synthesizeEvidenceAndDesign(
+    normalizedParsed,
+    (normalizedParsed.category as ReferenceAnalysis['category']) || '2d-platformer',
+    (normalizedParsed.cameraPerspective as ReferenceAnalysis['cameraPerspective']) || 'side-scrolling-2d',
+    (normalizedParsed.visualStyle as string) || '2D Pixel Art',
+    Array.isArray(normalizedParsed.colorPalette) ? (normalizedParsed.colorPalette as string[]) : ['#38bdf8', '#22c55e', '#ef4444'],
+    Array.isArray(normalizedParsed.visibleObjects) ? (normalizedParsed.visibleObjects as string[]) : ['Platform', 'Ground'],
+    (normalizedParsed.terrainLayout as string) || 'Visible ground and platform geometry.',
+    (normalizedParsed.suggestedRoles as ReferenceAnalysis['suggestedRoles']) || {},
+    inferredMechanics
+  );
+
+  const analysisPayload = normalizeReferenceAnalysisPayload({
+    ...normalizedParsed,
+    schemaVersion: '2.0',
+    provenance: 'huggingface-vision' as const,
+    modelProvenance: result.metadata.model || provider.defaultModel,
+    correlationId,
+    usage: result.metadata.usage,
+    analyzedAt: new Date().toISOString(),
+    frameCount: 1,
+    inferredMechanics,
+    observedEvidence,
+    proposedDesign,
+  });
+
+  const validated = ReferenceAnalysisSchema.parse(analysisPayload);
+  validated.analysisConfidenceTier = computeConfidenceTier(validated.inferredMechanics, validated.provenance);
+  return validated;
+}
+
+export interface FallbackChainOptions {
+  mode?: 'auto' | 'gemini-only' | 'hf-only' | 'heuristic-only';
+  allowFallback?: boolean;
+  correlationId?: string;
+  signal?: AbortSignal;
+}
+
+export interface FallbackChainResult {
+  analysis: ReferenceAnalysis;
+  source: 'gemini-vision' | 'huggingface-vision' | 'mock-heuristic';
+  provider: {
+    id: string;
+    model: string;
+    isFallback: boolean;
+  };
+  notice?: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
+
+/**
+ * Executes vision reference analysis with the required fallback chain:
+ * 1. Explicit 'heuristic-only' skips all hosted providers.
+ * 2. Try Gemini if configured.
+ * 3. If Gemini encounters recoverable timeout/error, try Hugging Face if configured.
+ * 4. If Hugging Face is unavailable or fails, invoke deterministic heuristic once.
+ * 5. If neither AI provider is configured, use the heuristic directly.
+ */
+export async function analyzeReferenceWithFallbackChain(
+  imageBase64: string,
+  userPrompt?: string,
+  options?: FallbackChainOptions
+): Promise<FallbackChainResult> {
+  const mode = options?.mode || 'auto';
+  const allowFallback = options?.allowFallback ?? true;
+  const correlationId = options?.correlationId;
+  const signal = options?.signal;
+
+  // 1. Explicit offline heuristic mode: honor choice without calling hosted providers
+  if (mode === 'heuristic-only') {
+    const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+    const validatedFallback = ReferenceAnalysisSchema.parse(fallback);
+    return {
+      analysis: validatedFallback,
+      source: 'mock-heuristic',
+      provider: {
+        id: 'local-heuristic',
+        model: 'deterministic-keywords-v2',
+        isFallback: true,
+      },
+      notice: 'Local heuristic analysis based on prompt keywords. Results do not reflect actual image content.',
+    };
+  }
+
+  const geminiProvider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
+  const hfProvider = aiProviderRegistry.getProviderForCapability('image-understanding', 'huggingface');
+  const isGeminiConfigured = Boolean(geminiProvider?.isConfigured());
+  const isHfConfigured = Boolean(hfProvider?.isConfigured());
+
+  // 2. Explicit Gemini-only mode
+  if (mode === 'gemini-only') {
+    if (!isGeminiConfigured) {
+      if (allowFallback) {
+        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+        return {
+          analysis: ReferenceAnalysisSchema.parse(fallback),
+          source: 'mock-heuristic',
+          provider: { id: 'local-heuristic', model: 'deterministic-keywords-v2', isFallback: true },
+          notice: 'GEMINI_API_KEY is not configured on the server. Used deterministic keyword heuristic analysis.',
+        };
+      }
+      throw new AiProviderError({
+        providerId: 'gemini',
+        category: 'missing_configuration',
+        code: 'MISSING_CONFIGURATION',
+        message: 'GEMINI_API_KEY is not configured on the server.',
+        statusCode: 503,
+        isRetryable: false,
+        correlationId,
+      });
+    }
+
+    try {
+      const analysis = await analyzeReferenceWithGemini(imageBase64, userPrompt, correlationId, { signal });
+      return {
+        analysis,
+        source: 'gemini-vision',
+        provider: {
+          id: 'gemini',
+          model: analysis.modelProvenance || serverConfig.geminiModel,
+          isFallback: false,
+        },
+        usage: analysis.usage,
+      };
+    } catch (err: unknown) {
+      if (allowFallback) {
+        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+        const safeMsg = sanitizeHfErrorMessage((err as Error).message);
+        return {
+          analysis: ReferenceAnalysisSchema.parse(fallback),
+          source: 'mock-heuristic',
+          provider: { id: 'local-heuristic', model: 'deterministic-keywords-v2', isFallback: true },
+          notice: `Live Gemini call failed (${safeMsg}). Switched to deterministic keyword heuristic analysis. Results do not reflect actual image content.`,
+        };
+      }
+      throw err;
+    }
+  }
+
+  // 3. Explicit HF-only mode
+  if (mode === 'hf-only') {
+    if (!isHfConfigured) {
+      if (allowFallback) {
+        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+        return {
+          analysis: ReferenceAnalysisSchema.parse(fallback),
+          source: 'mock-heuristic',
+          provider: { id: 'local-heuristic', model: 'deterministic-keywords-v2', isFallback: true },
+          notice: 'HF_TOKEN is not configured on the server. Used deterministic keyword heuristic analysis.',
+        };
+      }
+      throw new AiProviderError({
+        providerId: 'huggingface',
+        category: 'missing_configuration',
+        code: 'MISSING_CONFIGURATION',
+        message: 'HF_TOKEN is not configured on the server.',
+        statusCode: 503,
+        isRetryable: false,
+        correlationId,
+      });
+    }
+
+    try {
+      const analysis = await analyzeReferenceWithHuggingFace(imageBase64, userPrompt, correlationId, { signal });
+      return {
+        analysis,
+        source: 'huggingface-vision',
+        provider: {
+          id: 'huggingface',
+          model: analysis.modelProvenance || serverConfig.hfVisionModel,
+          isFallback: false,
+        },
+        usage: analysis.usage,
+      };
+    } catch (err: unknown) {
+      if (allowFallback) {
+        const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+        const safeMsg = sanitizeHfErrorMessage((err as Error).message);
+        return {
+          analysis: ReferenceAnalysisSchema.parse(fallback),
+          source: 'mock-heuristic',
+          provider: { id: 'local-heuristic', model: 'deterministic-keywords-v2', isFallback: true },
+          notice: `Live Hugging Face call failed (${safeMsg}). Switched to deterministic keyword heuristic analysis. Results do not reflect actual image content.`,
+        };
+      }
+      throw err;
+    }
+  }
+
+  // 4. Auto mode fallback chain:
+  // Neither hosted provider configured: use heuristic directly
+  if (!isGeminiConfigured && !isHfConfigured) {
+    if (allowFallback) {
+      const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+      return {
+        analysis: ReferenceAnalysisSchema.parse(fallback),
+        source: 'mock-heuristic',
+        provider: { id: 'local-heuristic', model: 'deterministic-keywords-v2', isFallback: true },
+        notice: 'Neither GEMINI_API_KEY nor HF_TOKEN is configured on the server. Used deterministic keyword heuristic analysis.',
+      };
+    }
+    throw new AiProviderError({
+      providerId: 'gemini',
+      category: 'missing_configuration',
+      code: 'MISSING_CONFIGURATION',
+      message: 'Neither GEMINI_API_KEY nor HF_TOKEN is configured on the server.',
+      statusCode: 503,
+      isRetryable: false,
+      correlationId,
+    });
+  }
+
+  let lastError: unknown = null;
+  let geminiFailed = false;
+
+  // Step 1: Try Gemini if configured
+  if (isGeminiConfigured) {
+    try {
+      const analysis = await analyzeReferenceWithGemini(imageBase64, userPrompt, correlationId, { signal });
+      return {
+        analysis,
+        source: 'gemini-vision',
+        provider: {
+          id: 'gemini',
+          model: analysis.modelProvenance || serverConfig.geminiModel,
+          isFallback: false,
+        },
+        usage: analysis.usage,
+      };
+    } catch (err: unknown) {
+      geminiFailed = true;
+      lastError = err;
+      if (signal?.aborted) {
+        throw err;
+      }
+      console.warn(`[FallbackChain] Gemini vision failed: ${(err as Error).message}. Attempting Hugging Face fallback...`);
+    }
+  }
+
+  // Step 2: Try Hugging Face if configured
+  if (isHfConfigured) {
+    try {
+      const analysis = await analyzeReferenceWithHuggingFace(imageBase64, userPrompt, correlationId, { signal });
+      const geminiNotice = geminiFailed
+        ? `Primary Gemini provider failed (${sanitizeHfErrorMessage((lastError as Error)?.message || 'transient error')}). Successfully analyzed using secondary Hugging Face Vision.`
+        : undefined;
+      return {
+        analysis,
+        source: 'huggingface-vision',
+        provider: {
+          id: 'huggingface',
+          model: analysis.modelProvenance || serverConfig.hfVisionModel,
+          isFallback: false,
+        },
+        notice: geminiNotice,
+        usage: analysis.usage,
+      };
+    } catch (err: unknown) {
+      lastError = err;
+      if (signal?.aborted) {
+        throw err;
+      }
+      console.warn(`[FallbackChain] Hugging Face vision failed: ${(err as Error).message}.`);
+    }
+  }
+
+  // Step 3: Invoke deterministic heuristic once if fallback allowed
+  if (allowFallback) {
+    const fallback = generateHeuristicReferenceAnalysis(userPrompt, 800, 600, correlationId);
+    const safeReason = lastError instanceof Error ? sanitizeHfErrorMessage(lastError.message) : 'Hosted AI providers unavailable';
+    return {
+      analysis: ReferenceAnalysisSchema.parse(fallback),
+      source: 'mock-heuristic',
+      provider: {
+        id: 'local-heuristic',
+        model: 'deterministic-keywords-v2',
+        isFallback: true,
+      },
+      notice: `Hosted vision analysis failed (${safeReason}). Switched to deterministic keyword heuristic analysis. Results do not reflect actual image content.`,
+    };
+  }
+
+  // If allowFallback is false, propagate the underlying error
+  if (lastError) {
+    throw lastError;
+  }
+  throw new AiProviderError({
+    providerId: 'gemini',
+    category: 'missing_configuration',
+    code: 'MISSING_CONFIGURATION',
+    message: 'No configured hosted vision AI provider succeeded.',
+    statusCode: 503,
+    isRetryable: false,
+    correlationId,
+  });
 }
 
 /**

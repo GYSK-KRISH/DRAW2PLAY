@@ -33,6 +33,7 @@ export type TargetEngine = z.infer<typeof TargetEngineSchema>;
 
 export const AnalysisProvenanceSchema = z.enum([
   'gemini-vision',
+  'huggingface-vision',
   'mock-heuristic',
   'manual-input',
   'development-mock',

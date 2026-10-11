@@ -14,7 +14,7 @@ export const AnalyzeReferenceRequestSchema = z.object({
   imageBase64: z.string().min(10, 'Base64 image data is required'),
   userPrompt: z.string().max(500).optional(),
   referenceId: z.string().optional(),
-  mode: z.enum(['auto', 'gemini-only', 'heuristic-only']).optional().default('auto'),
+  mode: z.enum(['auto', 'gemini-only', 'hf-only', 'heuristic-only']).optional().default('auto'),
   allowFallback: z.boolean().optional().default(false),
   correlationId: z.string().optional(),
 });

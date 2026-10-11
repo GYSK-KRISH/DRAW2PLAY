@@ -7,6 +7,7 @@ export type { GameAssetBundle } from './plan.js';
  */
 export type SceneProvenanceSource =
   | 'gemini-vision'
+  | 'huggingface-vision'
   | 'local-vector'
   | 'mock-fallback'
   | 'gemini-transformed'
@@ -14,6 +15,7 @@ export type SceneProvenanceSource =
 
 export const SceneProvenanceSourceSchema = z.enum([
   'gemini-vision',
+  'huggingface-vision',
   'local-vector',
   'mock-fallback',
   'gemini-transformed',
