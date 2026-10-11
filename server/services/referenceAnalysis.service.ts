@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import { serverConfig } from '../config.js';
-import { getGenAIClient } from './gemini.service.js';
+import { aiProviderRegistry } from '../providers/index.js';
 import {
   ReferenceAnalysis,
   ReferenceAnalysisSchema,
@@ -14,20 +13,6 @@ import {
 
 /** Maximum milliseconds to wait for a Gemini vision call before falling back */
 const GEMINI_VISION_TIMEOUT_MS = 18_000;
-
-/** Wrap a promise with a hard timeout */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
-      ms
-    );
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); }
-    );
-  });
-}
 
 /**
  * Compute overall analysis confidence tier from mechanics confidence scores and provenance.
@@ -45,7 +30,7 @@ function computeConfidenceTier(
 }
 
 /**
- * Analyzes a single reference image using live Gemini Vision.
+ * Analyzes a single reference image using live Gemini Vision through the AI provider adapter.
  *
  * Prompt design (Phase 6.2):
  * - Explicitly separates what is *observed* from what is *inferred*
@@ -56,12 +41,10 @@ export async function analyzeReferenceWithGemini(
   imageBase64: string,
   userPrompt?: string
 ): Promise<ReferenceAnalysis> {
-  const client = getGenAIClient();
-  if (!client) {
+  const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
+  if (!provider.isConfigured()) {
     throw new Error('GEMINI_API_KEY is not configured on the server');
   }
-
-  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
   const prompt = `You are a principal game engine architect and computer vision analyst for Draw2Play AI.
 
@@ -115,26 +98,14 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
   "recommendedPipeline": "phaser-2d" | "future-3d-engine" | "unsupported"
 }`;
 
-  const rawCall = client.models.generateContent({
-    model: serverConfig.geminiModel,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Data,
-            },
-          },
-        ],
-      },
-    ],
+  const result = await provider.execute({
+    capability: 'image-understanding',
+    prompt,
+    imageBase64,
+    timeoutMs: GEMINI_VISION_TIMEOUT_MS,
   });
 
-  const response = await withTimeout(rawCall, GEMINI_VISION_TIMEOUT_MS, 'Gemini vision');
-  const responseText = response.text || '';
+  const responseText = result.rawText || '';
   const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
   const parsed = JSON.parse(cleaned);
 
@@ -142,7 +113,7 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
     ...parsed,
     schemaVersion: '2.0',
     provenance: 'gemini-vision' as const,
-    modelProvenance: serverConfig.geminiModel,
+    modelProvenance: result.metadata.model || provider.defaultModel,
     analyzedAt: new Date().toISOString(),
     frameCount: 1,
   };
@@ -171,9 +142,9 @@ Respond with STRICT JSON (no markdown fences, no trailing commas):
 /**
  * Phase 6.2: Analyze multiple video frames in sequence and merge observations.
  *
- * Processes up to MAX_FRAMES frames. Observations unique to each frame are
- * tracked. The final merged analysis reflects the union of all visible objects
- * and the best-confidence mechanic from each frame set.
+ * Processes up to MAX_FRAMES frames through the Gemini provider. Observations
+ * unique to each frame are tracked. The final merged analysis reflects the union
+ * of all visible objects and the best-confidence mechanic from each frame set.
  *
  * IMPORTANT: All produced mechanics are still labelled as inferences.
  */
@@ -188,13 +159,12 @@ export async function analyzeMultipleFramesWithGemini(
   }
 
   const bounded = frameBase64s.slice(0, MAX_FRAMES);
-  const client = getGenAIClient();
-  if (!client) {
+  const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
+  if (!provider.isConfigured()) {
     throw new Error('GEMINI_API_KEY is not configured on the server');
   }
 
   const frameResultPromises = bounded.map(async (frameB64, idx): Promise<FrameAnalysisResult> => {
-    const base64Data = frameB64.replace(/^data:image\/\w+;base64,/, '');
     const framePrompt = `You are analyzing frame ${idx + 1} of ${bounded.length} from a gameplay video for Draw2Play AI.
 List only what is DIRECTLY VISIBLE in this specific frame. Do NOT infer gameplay mechanics here.
 ${userPrompt ? `Overall goal: "${userPrompt}"` : ''}
@@ -208,22 +178,15 @@ Respond with JSON only (no markdown):
   "uniqueObservations": ["observations unique or notable compared to typical frames"]
 }`;
 
-    const rawCall = client.models.generateContent({
-      model: serverConfig.geminiModel,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: framePrompt },
-            { inlineData: { mimeType: 'image/png', data: base64Data } },
-          ],
-        },
-      ],
+    const result = await provider.execute({
+      capability: 'image-understanding',
+      prompt: framePrompt,
+      imageBase64: frameB64,
+      timeoutMs: GEMINI_VISION_TIMEOUT_MS,
+      schema: FrameAnalysisResultSchema,
     });
 
-    const response = await withTimeout(rawCall, GEMINI_VISION_TIMEOUT_MS, `Frame ${idx} analysis`);
-    const text = (response.text || '').replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-    return FrameAnalysisResultSchema.parse({ ...JSON.parse(text), frameIndex: idx });
+    return { ...result.data, frameIndex: idx };
   });
 
   // Analyse frames in parallel (bounded to MAX_FRAMES)

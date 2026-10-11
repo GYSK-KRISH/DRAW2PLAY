@@ -4,6 +4,16 @@ import type { TransformLevelResponse } from '../types/transformation.js';
 import { interpretInstructionLocally } from './localRuleParser.js';
 import { applyTransformations } from '../game/transformationEngine.js';
 
+export interface ProviderStatusInfo {
+  providerId: string;
+  displayName: string;
+  isConfigured: boolean;
+  status: 'unconfigured' | 'configured' | 'available' | 'unavailable' | 'unknown';
+  capabilities: string[];
+  model: string;
+  lastErrorCategory?: string;
+}
+
 export interface HealthResponse {
   status: string;
   project: string;
@@ -11,12 +21,27 @@ export interface HealthResponse {
   theme: string;
   aiProvider: string;
   geminiConfigured: boolean;
+  providers?: ProviderStatusInfo[];
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch('/api/health');
   if (!response.ok) {
     throw new Error(`Health check failed with status: ${response.status}`);
+  }
+  return response.json();
+}
+
+export interface GetProvidersResponse {
+  success: boolean;
+  defaultProvider: string;
+  providers: ProviderStatusInfo[];
+}
+
+export async function fetchAiProviders(probe = false): Promise<GetProvidersResponse> {
+  const response = await fetch(`/api/ai/providers${probe ? '?probe=true' : ''}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch AI providers: status ${response.status}`);
   }
   return response.json();
 }

@@ -131,7 +131,10 @@ DRAW2PLAY/
     ├── sanity.test.ts                 # Sanity test suite for schemas, mock AI, and server config (5 tests)
     ├── sketch.test.ts                 # Vector geometry, undo/redo, normalization, JSON export tests (12 tests)
     ├── scene.test.ts                  # Playable physics scene conversion, segmentation & provenance tests (10 tests)
-    └── storage.test.ts                # Persistent storage CRUD, audio resilience & schema validation tests (10 tests)
+    ├── storage.test.ts                # Persistent storage CRUD, audio resilience & schema validation tests (10 tests)
+    ├── transformation.test.ts         # Natural language level transformation & themes tests (10 tests)
+    ├── reference.test.ts              # Multimodal reference intake, video frames, v2.0 schemas & plans (20 tests)
+    └── provider.test.ts               # AI provider abstraction, Gemini adapter, errors & diagnostics (15 tests)
 ```
 
 ---
@@ -334,21 +337,35 @@ Draw2Play AI enables creators to transform playable levels using plain English i
 * **Phase 3 Status:** **COMPLETE & VERIFIED** (Playable physics engine, stroke segmentation, Gemini Vision integration, local vector fallback).
 * **Phase 4 Status:** **COMPLETE & VERIFIED** (Procedural Web Audio API sound engine, Phaser particle systems, persistent My Creations gallery, mobile touch controls).
 * **Phase 5 Status:** **COMPLETE & VERIFIED** (Natural language level transformation, 5 themes with ambient particles, ice friction, difficulty presets).
-* **Phase 6.1 Status:** **COMPLETE & VERIFIED**
-  * **Multimodal Intake Workflow:** Upload game screenshots, concept art, or extract selected video frames directly in-browser using HTML5 `<video>` and `<canvas>`.
-  * **Safe Upload Service (`upload.service.ts`):** Magic byte sniff validation (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WebP `RIFF..WEBP`), dimension bounds (max 4096px), file size limits (max 10MB), path traversal neutralization, and internal asset abstraction.
-  * **Reference Vision Analysis (`referenceAnalysis.service.ts`):** Deduces game category (`voxel`, `2d-platformer`, `isometric`, `3d-world`, `top-down-2d`, `puzzle`), camera perspective, visual style, palette, visible objects, and inferred mechanics with observation grounding.
-  * **Truth in Advertising:** Never fabricates AI analysis; clearly labels provenance (`gemini-vision`, `mock-heuristic`, `manual-input`). Acknowledges single reference frames cannot reconstruct full 3D voxel worlds, interior chunk generation, or hidden source physics.
-  * **Plan Routing & Execution:**
-    * **2D Platformers:** Generates validated `GameGenerationPlan` and immediately launches playable levels into the active Phaser 2D engine.
-    * **Voxel / 3D Games:** Formulates a structured `GameGenerationPlan` with `deferred-future-engine` status, documents missing 3D pipeline requirements (voxel coordinate managers, raymarching, depth buffer), enables JSON export, and preserves the plan in My Creations for the upcoming 3D engine phase.
-  * **Verification:** 57 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passes in 645ms.
+* **Phase 6.1 Status:** **COMPLETE & VERIFIED** (Multimodal Reference Intake, game-type classification, deferred 3D voxel plan routing).
+* **Phase 6.2 Status:** **COMPLETE & VERIFIED**
+  * **Observation Grounding:** Explicit distinction between literal visual observations (`observationalEvidence`) and inferred gameplay hypotheses (`inferredMechanics`).
+  * **Multi-Frame Video Understanding:** Sample up to 5 video frames in-browser; server merges observations across frames without external dependencies.
+  * **Confidence Tiers:** Automatic categorization into `high`, `medium`, and `low` confidence based on evidence richness and agreement.
+  * **Generation Plan Validation:** Explicit warnings when plans are formulated from heuristic analysis or low confidence references.
+* **Phase 7.1 Status:** **COMPLETE & VERIFIED**
+  * **AI Provider Abstraction (`server/providers/types.ts`):** Lightweight, typed contract defining provider identity, supported capabilities (`text-generation`, `image-understanding`, `multi-image-analysis`), normalized requests/responses, execution metadata, and typed error classifications (`auth_error`, `rate_limit`, `timeout`, `invalid_output`, `network_error`, `unsupported_capability`).
+  * **Server-Side Registry (`server/providers/registry.ts`):** Centralized registry for registering, retrieving, and selecting providers by capability with duplicate ID guards and capability validation.
+  * **Gemini Provider Adapter (`server/providers/gemini.provider.ts`):** Wraps official `@google/genai` SDK behind the provider contract with 18s timeout, bounded frames, structured output Zod validation, and zero secret leakage.
+  * **Service Migration:** `gemini.service.ts` and `referenceAnalysis.service.ts` refactored to execute via `aiProviderRegistry` and `GeminiProvider`.
+  * **Diagnostics & Status:** Safe `GET /api/ai/providers` and enriched `GET /api/health` endpoints reporting provider configuration and availability without exposing secrets.
+  * **Verified Quality:** 82 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passes in ~650ms.
 
-### Known Limitations:
+### Gemini Configuration Workflow:
+Configure the Gemini API key in your server environment via `.env`:
+```env
+# Server environment (.env)
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.8-flash
+```
+If `GEMINI_API_KEY` is omitted, Draw2Play automatically degrades gracefully to deterministic heuristic analysis (`mock-heuristic` provenance), clearly labeled in all UI banners and responses.
+
+### Known Limitations (Phase 7.1):
+- **Single Registered Provider:** Gemini is currently the only registered provider in Phase 7.1. Hugging Face and other compatible providers will be added in Phase 7.2 using this abstraction.
 - AudioContext requires an initial user interaction (click or tap) to unlock audio playback per standard browser security policies.
 - Without a valid `GEMINI_API_KEY` in `.env`, the system automatically falls back to deterministic heuristic reference analysis (`mock-heuristic`), clearly indicated in the UI.
 - Browser `localStorage` is subject to device storage quotas (typically ~5MB); levels and plans are stored as compact vector coordinates to maximize capacity.
-- Phase 6.1 focuses on reference intake, game-type detection, and plan formulation. Full 3D voxel rendering requires a dedicated 3D engine scheduled for a subsequent phase.
+- Full 3D voxel rendering requires a dedicated 3D engine scheduled for a subsequent phase.
 
-### Recommended Next Step (Phase 6.2):
-- **Structured 3D Voxel Engine Pipeline:** Three.js / WebGL raymarching voxel prototype to consume deferred Phase 6.1 generation plans.
+### Recommended Next Step (Phase 7.2):
+- **Hugging Face Provider Adapter:** Implement a secondary provider adapter conforming to the `AiProvider` contract for open-source vision and text models.

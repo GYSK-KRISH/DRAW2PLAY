@@ -11,7 +11,31 @@ import { TransformLevelRequestSchema } from '../schemas/transformation.schema.js
 import { interpretInstructionLocally } from '../../src/services/localRuleParser.js';
 import { applyTransformations } from '../../src/game/transformationEngine.js';
 
+import { aiProviderRegistry } from '../providers/index.js';
+
 export const aiRouter = Router();
+
+/**
+ * Safe Provider Status and Diagnostics Endpoint
+ * Reports registered AI providers, configuration status, and capabilities.
+ * Never leaks API keys, secrets, or raw internal credentials.
+ */
+aiRouter.get('/providers', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const probe = req.query.probe === 'true';
+    const statuses = await aiProviderRegistry.getProviderStatuses(probe);
+    res.json({
+      success: true,
+      defaultProvider: aiProviderRegistry.getDefaultProvider().id,
+      providers: statuses,
+    });
+  } catch (error: unknown) {
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message || 'Failed to fetch provider status',
+    });
+  }
+});
 
 const CharacterRequestSchema = z.object({
   imageBase64: z.string().min(10, 'Valid base64 image data is required'),

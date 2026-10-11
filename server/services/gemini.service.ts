@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { GoogleGenAI } from '@google/genai';
-import { serverConfig } from '../config.js';
+import type { GoogleGenAI } from '@google/genai';
+import { aiProviderRegistry } from '../providers/index.js';
+import type { GeminiProvider } from '../providers/gemini.provider.js';
 import { CharacterAnalysisOutput, CharacterAnalysisOutputSchema } from '../schemas/character.schema.js';
 import { GeminiLevelAnalysisOutput, GeminiLevelAnalysisOutputSchema } from '../schemas/level.schema.js';
 import {
@@ -9,29 +10,32 @@ import {
 } from '../schemas/transformation.schema.js';
 import type { PlayableGameScene } from '../../src/types/scene.js';
 
-let genAIClient: GoogleGenAI | null = null;
-
+/**
+ * Backward compatibility helper to retrieve underlying client if needed.
+ */
 export function getGenAIClient(): GoogleGenAI | null {
-  if (!serverConfig.geminiApiKey) {
+  const provider = aiProviderRegistry.getProvider('gemini') as GeminiProvider | undefined;
+  if (!provider || !provider.isConfigured()) {
     return null;
   }
-  if (!genAIClient) {
-    genAIClient = new GoogleGenAI({ apiKey: serverConfig.geminiApiKey });
+  try {
+    return provider.getClient() as unknown as GoogleGenAI;
+  } catch {
+    return null;
   }
-  return genAIClient;
 }
 
+/**
+ * Analyze character sketch using Gemini adapter via provider registry.
+ */
 export async function analyzeCharacterWithGemini(
   imageBase64: string,
   promptOverride?: string
 ): Promise<CharacterAnalysisOutput> {
-  const client = getGenAIClient();
-  if (!client) {
+  const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
+  if (!provider.isConfigured()) {
     throw new Error('GEMINI_API_KEY is not configured on the server');
   }
-
-  // Strip prefix data URL if present
-  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
   const prompt = promptOverride || `You are an expert game designer analyzing a player-drawn character sketch for a 2D action-platformer game.
 Carefully inspect the visual characteristics of this drawing:
@@ -53,41 +57,27 @@ Extract game attributes and return STRICT JSON conforming to this schema:
 }
 Output raw JSON only without markdown formatting.`;
 
-  const response = await client.models.generateContent({
-    model: serverConfig.geminiModel,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Data,
-            },
-          },
-        ],
-      },
-    ],
+  const result = await provider.execute({
+    capability: 'image-understanding',
+    prompt,
+    imageBase64,
+    schema: CharacterAnalysisOutputSchema,
   });
 
-  const responseText = response.text || '';
-  const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-  const parsed = JSON.parse(cleaned);
-
-  return CharacterAnalysisOutputSchema.parse(parsed);
+  return result.data;
 }
 
+/**
+ * Analyze level sketch using Gemini adapter via provider registry.
+ */
 export async function analyzeLevelWithGemini(
   imageBase64: string,
   strokeMetadataSummary?: string
 ): Promise<GeminiLevelAnalysisOutput> {
-  const client = getGenAIClient();
-  if (!client) {
+  const provider = aiProviderRegistry.getProviderForCapability('image-understanding', 'gemini');
+  if (!provider.isConfigured()) {
     throw new Error('GEMINI_API_KEY is not configured on the server');
   }
-
-  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
   const prompt = `You are a creative level designer and game architect analyzing a player's hand-drawn 2D physics level sketch for Draw2Play.
 The sketch contains semantic game elements drawn with colors:
@@ -114,29 +104,14 @@ Inspect the visual level design and respond with STRICT JSON conforming to this 
 }
 Output raw JSON only without markdown formatting.`;
 
-  const response = await client.models.generateContent({
-    model: serverConfig.geminiModel,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: 'image/png',
-              data: base64Data,
-            },
-          },
-        ],
-      },
-    ],
+  const result = await provider.execute({
+    capability: 'image-understanding',
+    prompt,
+    imageBase64,
+    schema: GeminiLevelAnalysisOutputSchema,
   });
 
-  const responseText = response.text || '';
-  const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-  const parsed = JSON.parse(cleaned);
-
-  return GeminiLevelAnalysisOutputSchema.parse(parsed);
+  return result.data;
 }
 
 export interface GeminiTransformationOutput {
@@ -145,12 +120,15 @@ export interface GeminiTransformationOutput {
   warnings: string[];
 }
 
+/**
+ * Transform level with natural language prompt using Gemini adapter via provider registry.
+ */
 export async function transformLevelWithGemini(
   scene: PlayableGameScene,
   instruction: string
 ): Promise<GeminiTransformationOutput> {
-  const client = getGenAIClient();
-  if (!client) {
+  const provider = aiProviderRegistry.getProviderForCapability('text-generation', 'gemini');
+  if (!provider.isConfigured()) {
     throw new Error('GEMINI_API_KEY is not configured on the server');
   }
 
@@ -187,26 +165,17 @@ Choose applicable transformation operations to fulfill the request. Return STRIC
 }
 Output raw JSON only without markdown formatting.`;
 
-  const response = await client.models.generateContent({
-    model: serverConfig.geminiModel,
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: prompt }],
-      },
-    ],
-  });
-
-  const responseText = response.text || '';
-  const cleaned = responseText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-  const parsed = JSON.parse(cleaned);
-
   const TransformationOutputSchema = z.object({
     operations: z.array(TransformationOperationSchema),
     explanation: z.string(),
     warnings: z.array(z.string()).default([]),
   });
 
-  return TransformationOutputSchema.parse(parsed);
-}
+  const result = await provider.execute({
+    capability: 'text-generation',
+    prompt,
+    schema: TransformationOutputSchema,
+  });
 
+  return result.data;
+}
