@@ -491,4 +491,11 @@ export class SandboxScene extends Phaser.Scene {
       g.destroy();
     }
   }
+
+  /**
+   * Updates the scene's internal inventory copy when items are crafted or synced from React
+   */
+  public setInventory(newInventory: SandboxInventory): void {
+    this.inventory = { ...newInventory };
+  }
 }

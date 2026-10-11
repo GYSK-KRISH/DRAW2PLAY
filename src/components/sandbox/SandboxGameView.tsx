@@ -22,6 +22,8 @@ import type {
   SandboxWorldData,
   PlaceableBlockType,
   CraftSubmission,
+  CraftableItemId,
+  CraftRecognitionProvenance,
 } from '../../types/sandbox.js';
 import {
   HOTBAR_BLOCK_ORDER,
@@ -30,6 +32,7 @@ import {
 import {
   createDefaultInventory,
   getSelectedBlockType,
+  awardCraftedItem,
 } from '../../game/sandbox/sandboxInventory.js';
 import { generateDefaultSandboxWorld } from '../../game/sandbox/sandboxWorld.js';
 import { saveSandbox, loadSandbox, hasSandboxSave } from '../../services/sandboxStorage.js';
@@ -43,6 +46,7 @@ interface SandboxGameViewProps {
 export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
+  const sceneRef = useRef<SandboxScene | null>(null);
 
   const [inventory, setInventory] = useState<SandboxInventory>(createDefaultInventory());
   const [playerPosition, setPlayerPosition] = useState<{ x: number; y: number; col: number; row: number }>({
@@ -56,6 +60,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
   const [touchMode, setTouchMode] = useState<'mine' | 'place'>('mine');
   const [isCraftModalOpen, setIsCraftModalOpen] = useState<boolean>(false);
   const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(hasSandboxSave());
+  const [awardedSubmissionIds, setAwardedSubmissionIds] = useState<Set<string>>(() => new Set());
 
   // Show temporary action feedback toast
   const triggerFeedback = useCallback((msg: string) => {
@@ -81,6 +86,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     game.events.once('ready', () => {
       const scene = game.scene.getScene('SandboxScene') as SandboxScene;
       if (scene) {
+        sceneRef.current = scene;
         scene.scene.restart({
           worldData: initialWorld || generateDefaultSandboxWorld(),
           initialInventory: initialInv || createDefaultInventory(),
@@ -105,6 +111,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
       if (gameRef.current) {
         gameRef.current.destroy(true);
         gameRef.current = null;
+        sceneRef.current = null;
       }
     };
   }, [initGame]);
@@ -192,9 +199,39 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
     triggerFeedback('Loaded saved sandbox world!');
   };
 
-  // Craft submission handler
-  const handleCraftSubmission = (submission: CraftSubmission) => {
-    triggerFeedback(`Drawing submitted (${submission.strokesCount} strokes) for Phase 7.2 recognition!`);
+  // Craft submission and award handlers (Phase 7.2)
+  const handleAwardItem = useCallback(
+    (
+      submissionId: string,
+      itemId: CraftableItemId,
+      provenance: CraftRecognitionProvenance
+    ) => {
+      if (awardedSubmissionIds.has(submissionId)) {
+        triggerFeedback('Craft submission has already been awarded!');
+        return;
+      }
+
+      const awardResult = awardCraftedItem(inventory, itemId);
+      if (!awardResult.success || !awardResult.item) {
+        triggerFeedback(awardResult.reason || 'Failed to craft item.');
+        audioService.playHazard();
+        return;
+      }
+
+      setAwardedSubmissionIds((prev) => new Set(prev).add(submissionId));
+      setInventory({ ...awardResult.inventory });
+
+      if (sceneRef.current) {
+        sceneRef.current.setInventory(awardResult.inventory);
+      }
+
+      triggerFeedback(`✨ Crafted 1x ${awardResult.item.displayName}! (${provenance})`);
+    },
+    [awardedSubmissionIds, inventory, triggerFeedback]
+  );
+
+  const handleCraftSubmission = (_submission: CraftSubmission) => {
+    // Blueprint registered in crafting queue
   };
 
   const selectedBlock = getSelectedBlockType(inventory);
@@ -423,6 +460,7 @@ export const SandboxGameView: React.FC<SandboxGameViewProps> = ({ onBackToStudio
         isOpen={isCraftModalOpen}
         onClose={() => setIsCraftModalOpen(false)}
         onSubmitCraft={handleCraftSubmission}
+        onAwardItem={handleAwardItem}
       />
     </div>
   );

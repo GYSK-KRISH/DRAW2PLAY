@@ -12,6 +12,12 @@ import { interpretInstructionLocally } from '../../src/services/localRuleParser.
 import { applyTransformations } from '../../src/game/transformationEngine.js';
 
 import { aiProviderRegistry } from '../providers/index.js';
+import {
+  ServerRecognizeCraftRequestSchema,
+  CRAFTABLE_ITEM_ALLOWLIST,
+  CRAFTABLE_ITEMS_CATALOGUE,
+} from '../schemas/craft.schema.js';
+import { recognizeCraftDrawing } from '../services/craftRecognition.service.js';
 
 export const aiRouter = Router();
 
@@ -254,4 +260,47 @@ aiRouter.post('/transform-level', async (req: Request, res: Response): Promise<v
     });
   }
 });
+
+/**
+ * Craftable Items Catalogue Endpoint (Phase 7.2)
+ * Returns the finite allowlist and metadata definitions of craftable sandbox items.
+ */
+aiRouter.get('/craft-catalogue', (_req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    allowlist: CRAFTABLE_ITEM_ALLOWLIST,
+    catalogue: CRAFTABLE_ITEMS_CATALOGUE,
+  });
+});
+
+/**
+ * Sketch-to-Craft Recognition Endpoint (Phase 7.2)
+ * Evaluates hand-drawn sketches for the Draw-to-Craft Sandbox mode.
+ */
+aiRouter.post('/recognize-craft-sketch', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = ServerRecognizeCraftRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: parseResult.error.flatten(),
+      });
+      return;
+    }
+
+    const recognitionResult = await recognizeCraftDrawing(parseResult.data);
+    res.json({
+      success: true,
+      result: recognitionResult,
+    });
+  } catch (error: unknown) {
+    console.error('Unhandled sketch recognition error:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message || 'Internal server error during sketch recognition',
+    });
+  }
+});
+
 

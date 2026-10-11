@@ -134,7 +134,9 @@ DRAW2PLAY/
     ├── storage.test.ts                # Persistent storage CRUD, audio resilience & schema validation tests (10 tests)
     ├── transformation.test.ts         # Natural language level transformation & themes tests (10 tests)
     ├── reference.test.ts              # Multimodal reference intake, video frames, v2.0 schemas & plans (20 tests)
-    └── provider.test.ts               # AI provider abstraction, Gemini adapter, errors & diagnostics (15 tests)
+    ├── provider.test.ts               # AI provider abstraction, Gemini adapter, errors & diagnostics (15 tests)
+    ├── sandbox.test.ts                # Sandbox world, mining/placement, physics, and save/load tests (10 tests)
+    └── craft.test.ts                  # Sketch recognition, allowlist validation, idempotency, and award tests (18 tests)
 ```
 
 ---
@@ -295,6 +297,40 @@ Run `npm test` to execute all 4 test suites (**37/37 automated tests passing**):
 ▶ Test 9: Saving Transformed Level in My Creations ✓
 ▶ Test 10: Backward Compatibility with Existing Un-themed Scenes ✓
 🎉 ALL 10 PHASE 5 TRANSFORMATION TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 6.1 & 6.2 Reference Intake & Video Frame Analysis Test Suite...
+▶ Tests 1-10: Reference asset intake, magic bytes, voxel/2d plan generation ✓
+▶ Tests 11-20: Observational evidence, multi-frame analysis, confidence tiers, provenance ✓
+🎉 ALL 20 PHASE 6.1/6.2 REFERENCE INTAKE TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 7.1 AI Provider & Gemini Adapter Test Suite...
+▶ Tests 1-15: Provider contracts, registry lookup, capabilities, timeouts, errors, provenance ✓
+🎉 ALL 15 PHASE 7.1 PROVIDER & ADAPTER TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 7.1 Sandbox Mode & Draw-to-Craft Foundation Test Suite...
+▶ Tests 1-10: World generation, tile physics, mining/placement, hotbar, and save/load ✓
+🎉 ALL 10 PHASE 7.1 SANDBOX TESTS PASSED SUCCESSFULLY!
+
+🧪 Starting Draw2Play Phase 7.2 Draw-to-Craft Sketch Recognition Test Suite...
+▶ Test 1: Valid recognition request validation ✓
+▶ Test 2: Empty and malformed drawing rejection with invalid-input ✓
+▶ Test 3: Payload size and dimension bounds ✓
+▶ Test 4: Provider success with structured parsing & gemini-vision provenance ✓
+▶ Test 5: Provider timeout bounded to 15s ✓
+▶ Test 6: Missing API key handled with provider-unavailable / fallback ✓
+▶ Test 7: Malformed provider response recovery ✓
+▶ Test 8: Unsupported drawing prediction (mappedItemId=null) ✓
+▶ Test 9: Unknown item ID rejection against finite allowlist ✓
+▶ Test 10: Missing confidence handled as null without fabricated numbers ✓
+▶ Test 11: Explicit acceptance awards exactly one item ✓
+▶ Test 12: Rejection awards no item ✓
+▶ Test 13: Duplicate submission cannot award twice (idempotency) ✓
+▶ Test 14: Retry does not duplicate an award ✓
+▶ Test 15: Inventory bounds and 999 max stack handling ✓
+▶ Test 16: Existing save/load compatibility ✓
+▶ Test 17: Manual fallback validation for all catalogue items ✓
+▶ Test 18: Honest provider provenance (gemini-vision vs mock-heuristic) ✓
+🎉 ALL 18 PHASE 7.2 DRAW-TO-CRAFT TESTS PASSED SUCCESSFULLY!
 ```
 
 ---
@@ -338,53 +374,83 @@ Draw2Play AI enables creators to transform playable levels using plain English i
 * **Phase 4 Status:** **COMPLETE & VERIFIED** (Procedural Web Audio API sound engine, Phaser particle systems, persistent My Creations gallery, mobile touch controls).
 * **Phase 5 Status:** **COMPLETE & VERIFIED** (Natural language level transformation, 5 themes with ambient particles, ice friction, difficulty presets).
 * **Phase 6.1 Status:** **COMPLETE & VERIFIED** (Multimodal Reference Intake, game-type classification, deferred 3D voxel plan routing).
-* **Phase 6.2 Status:** **COMPLETE & VERIFIED**
-  * **Observation Grounding:** Explicit distinction between literal visual observations (`observationalEvidence`) and inferred gameplay hypotheses (`inferredMechanics`).
-  * **Multi-Frame Video Understanding:** Sample up to 5 video frames in-browser; server merges observations across frames without external dependencies.
-  * **Confidence Tiers:** Automatic categorization into `high`, `medium`, and `low` confidence based on evidence richness and agreement.
-  * **Generation Plan Validation:** Explicit warnings when plans are formulated from heuristic analysis or low confidence references.
-* **Phase 7.1 Status:** **COMPLETE & VERIFIED**
-  * **Draw-to-Craft Sandbox Mode Foundation:** Fully integrated 2D tile-based sandbox mode inside the existing Phaser 4 + React 19 architecture.
-  * **Procedural 2D Sandbox World:** 64x36 bounded world (32px tiles) with layered terrain (Air, Grass, Dirt, Stone), natural trees, and safe player spawn.
-  * **Physics, Collision & Single-Jump Handling:** Arcade Physics with static tile colliders, horizontal/vertical collision resolution, grounded state reset, single-jump key-press guard, and safe respawn on out-of-bounds fall.
-  * **Mining & Block Placement:** Left-click mining, right-click placing (with context-menu suppression on game canvas), reach-limit checks (4.5 tiles), player-AABB overlap prevention, and non-negative inventory updates.
-  * **Hotbar & Inventory:** 4 hotbar slots (`[1] Grass`, `[2] Dirt`, `[3] Stone`, `[4] Wood`) selectable via number keys 1-4, hotbar clicks, or touch buttons.
-  * **Draw-to-Craft Integration Foundation:** Interactive drawing modal with brush/eraser/clear/undo/preview, creating typed `CraftSubmission` records with transparent placeholder status (zero fake predictions or random awards).
-  * **Sandbox Persistence:** Safe `localStorage` persistence (`draw2play_sandbox_save_v1`) with Zod schema validation and corruption fallback, isolated from My Creations.
-  * **Verified Quality:** 87 automated tests passing (100%), Oxlint clean (0 warnings, 0 errors), production build passing cleanly.
+* **Phase 6.2 Status:** **COMPLETE & VERIFIED** (Observation grounding, multi-frame video understanding, confidence tiers, generation plan validation).
+* **Phase 7.1 Status:** **COMPLETE & VERIFIED** (2D tile-based sandbox world, player physics, mining/placing, hotbar, isolated persistence).
+* **Phase 7.2 Status:** **COMPLETE & VERIFIED**
+  * **Real Sketch Recognition Pipeline:** Server endpoint `POST /api/ai/recognize-craft-sketch` backed by Gemini Vision via the Phase 7.1 AI provider abstraction.
+  * **Safe Discriminated Recognition Contract:** Distinct statuses (`recognized`, `needs-review`, `unsupported`, `provider-unavailable`, `invalid-input`) with strictly honest confidence and provenance.
+  * **Interactive Review Interface:** Dedicated review modal showing predicted label, confidence percentage (or uncalibrated disclaimer), visual provenance badge, alternative interpretations, and explicit confirmation.
+  * **Finite Sandbox Allowlist Validation:** Mapped strictly to `['grass', 'dirt', 'stone', 'wood']`. Out-of-theme drawings (e.g. cars, planes) are classified as `unsupported`.
+  * **Idempotent Single-Award Flow:** Exactly 1 item awarded only upon explicit user confirmation; double-clicks and retries are guarded by submission UUID tracking.
+  * **Honest Offline Fallback:** When `GEMINI_API_KEY` is absent, the system explicitly reports `mock-heuristic` provenance or `provider-unavailable` with zero fake AI claims, providing a seamless 4-item manual catalogue picker.
+  * **105 Passing Automated Tests:** Full test suite verified with zero lint errors and clean production build.
 
 ---
 
-## ⛏️ 13. Draw-to-Craft Sandbox Mode (Phase 7.1 Guide)
+## ⛏️ 13. Draw-to-Craft Sandbox Mode (User Guide)
 
 ### How to Open the Sandbox:
 Click the **"Sandbox v7.1"** button (pickaxe icon) in the studio top bar. You can return to the Draw2Play sketch studio anytime using the **"Studio"** button in the top navigation bar.
 
 ### Sandbox Controls:
 - **Movement:** `[A]/[D]` or `[←]/[→]` to run left/right.
-- **Jump:** `[W]`, `[Space]`, or `[↑]` to jump. Holding the jump key will not trigger unintended repeated jumps (single-press guard).
-- **Mine Block:** Left-click on any solid block within reach (4.5 tiles). The block is converted to air and collected into your inventory.
-- **Place Block:** Right-click on an empty space within reach (4.5 tiles) to place your active hotbar item. Browser context menu is suppressed on the game canvas.
-- **Hotbar Selection:** Press number keys `[1]`, `[2]`, `[3]`, or `[4]` to select Grass, Dirt, Stone, or Wood, or click on the hotbar slots.
-- **Mobile Touch Controls:** On-screen D-pad buttons (`[◀]`, `[▶]`, `[▲]`) for movement and jump, plus a **Mine / Place toggle button** (`⛏️ Mine` vs `🧱 Place`) allowing single-touch interactions on mobile devices.
-- **Save / Load World:** Use the "Save World" and "Load World" buttons in the top HUD to persist your world tiles, inventory, and player position.
+- **Jump:** `[W]`, `[Space]`, or `[↑]` to jump. Single-press guard prevents runaway jumping.
+- **Mine Block:** Left-click on any solid block within reach (4.5 tiles).
+- **Place Block:** Right-click on an empty space within reach (4.5 tiles) to place your active hotbar item.
+- **Hotbar Selection:** Press number keys `[1]`, `[2]`, `[3]`, or `[4]` to select Grass, Dirt, Stone, or Wood.
+- **Mobile Touch Controls:** On-screen D-pad buttons (`[◀]`, `[▶]`, `[▲]`) and a **Mine / Place toggle button** (`⛏️ Mine` vs `🧱 Place`).
+- **Save / Load World:** Use the "Save World" and "Load World" buttons in the top HUD.
 
-### How Inventory Works:
-- Tracks quantities for Grass, Dirt, Stone, and Wood blocks.
-- Inventory decrements when placing a block and increments when mining a block.
-- Inventory counts cannot become negative.
-- Placement is rejected if you attempt to place inside your character's bounding box or if you lack materials.
+---
 
-### Draw to Craft Status:
-- **What is implemented:**
-  - Dedicated **Draw to Craft** modal accessible via the `🎨 Draw to Craft` button on the top HUD.
-  - Interactive drawing canvas supporting stylus, mouse, and touch input with brush, eraser, undo, clear, and brush size slider.
-  - Sketch submission preview and typed `CraftSubmission` data model with provenance tracking.
-  - Procedural sound effects for mining, placing, and crafting interactions.
-- **What is NOT implemented yet (Reserved for Phase 7.2):**
-  - No fake AI predictions or random awards are returned.
-  - Transformers.js / ONNX runtime models are deferred to Phase 7.2.
+## 🎨 14. Phase 7.2: Real Sketch Recognition & Draw-to-Craft Guide
 
-### Next Planned Phase (Phase 7.2):
-- **Local Sketch Recognition:** Connect a local, in-browser classification model (e.g. QuickDraw ONNX or MobileNet) to recognize drawn tools and items directly from user sketches and craft them into the sandbox inventory.
+### How Draw-to-Craft Works:
+1. Click **`🎨 Draw to Craft`** in the Sandbox HUD to open the crafting modal.
+2. Draw your desired object using the drawing canvas (brush, eraser, undo, clear, size slider). Examples:
+   - Draw an **axe, tree trunk, log, or wooden stick** to craft **Wood**.
+   - Draw a **pickaxe, boulder, pebble, or cobblestone** to craft **Stone**.
+   - Draw a **mound of earth, shovel, or soil patch** to craft **Dirt**.
+   - Draw a **plant, blade of grass, flower, or leafy bush** to craft **Grass**.
+3. Click **`Recognize Sketch`** to send the drawing to the server.
+4. **Review the Model Prediction:**
+   - The modal shows the detected subject and sandbox item match.
+   - Shows model confidence (e.g. `92% High Confidence`) if evaluated by Gemini Vision, or an honest disclaimer if running offline heuristic fallback.
+   - Displays visual badge of provenance: `gemini-vision` (green), `mock-heuristic` (amber), or `manual-input` (blue).
+5. **Decide Action:**
+   - **`Accept & Craft (1x [Item])`**: Explicitly confirms the award. Exactly one item is added to your sandbox inventory and hotbar.
+   - **`Reject & Dismiss`**: Rejects the prediction. No items are added to your inventory.
+   - **`Redraw Sketch`**: Clears the review and returns to the drawing canvas to refine your sketch.
+   - **`Manual Fallback`**: Opens the 4-item manual catalogue to choose Wood, Stone, Dirt, or Grass directly.
+
+### Provider Configuration:
+To enable live Gemini Vision recognition:
+1. Create or edit `.env` in the root folder:
+   ```bash
+   GEMINI_API_KEY=your_google_gemini_api_key_here
+   ```
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
+3. When `GEMINI_API_KEY` is present and valid, sketches are analyzed using Gemini Vision (`gemini-3.8-flash` / `gemini-2.5-flash`) via `@google/genai`.
+
+### What Happens Without an API Key (Offline / Heuristic Mode):
+- If `GEMINI_API_KEY` is missing or invalid, Draw2Play AI **never pretends** to be a live model.
+- The server returns `provenance: 'mock-heuristic'` with `isFallback: true` and an explicit note that offline heuristic analysis was applied.
+- The UI allows the user to review the heuristic prediction or click **`Manual Selection`** to pick any item from the craftable catalogue.
+
+### Anti-Fabrication & Safety Guarantees:
+- **No Unsolicited Awards:** Submitting a drawing never awards an item automatically. An item is awarded only after explicit user acceptance.
+- **Finite Allowlist:** Predictions must map to the allowlist (`grass`, `dirt`, `stone`, `wood`). Drawings of out-of-theme objects (airplanes, computers, pizzas) return `status: 'unsupported'` with no item mapped.
+- **Idempotency:** Each submission has a unique `submissionId`. Double-clicking, retrying, or submitting repeatedly cannot award duplicate items.
+- **Save State Preservation:** World tiles and player position remain untouched; inventory persists cleanly into `localStorage` across page reloads.
+
+### Running the Tests:
+Run the complete automated test suite (100% offline, zero network calls or credentials required):
+```bash
+npm test
+```
+All 18 Phase 7.2 Draw-to-Craft tests will run alongside the existing suites (105 tests total).
+
 
