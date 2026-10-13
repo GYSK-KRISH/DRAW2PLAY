@@ -194,7 +194,34 @@ for (const p of converted1.platforms) {
   assert.ok(p.height > 0, 'Platform height must be positive');
   assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y), 'Platform coordinates must be finite');
 }
+
 console.log('  ✓ Ground stroke properly segmented into 3 platform slabs');
+
+// Regression: malformed imported coordinates must be filtered before creating
+// Phaser collision bodies instead of making the entire scene fail Zod validation.
+const malformedGroundDoc: SketchDocument = {
+  ...testDoc1,
+  id: 'doc-malformed-ground',
+  strokes: [{
+    ...multiPointGroundStroke,
+    id: 'stroke-ground-with-invalid-point',
+    points: [
+      { x: 0.1, y: 0.8 },
+      { x: Number.NaN, y: 0.4 },
+      { x: 0.3, y: 0.8 },
+    ],
+  }],
+};
+const malformedGroundScene = convertSketchToPlayableScene(malformedGroundDoc);
+assert.ok(malformedGroundScene.platforms.length > 0);
+assert.ok(
+  malformedGroundScene.platforms.every((platform) =>
+    Number.isFinite(platform.x) && Number.isFinite(platform.y) &&
+    Number.isFinite(platform.width) && Number.isFinite(platform.height)
+  ),
+  'Malformed source points must not produce invalid physics geometry'
+);
+console.log('  ✓ Invalid imported stroke points are filtered before physics conversion');
 
 // ---------------------------------------------------------------------------
 // Test 4: Full Multi-Element Level Conversion
