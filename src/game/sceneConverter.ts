@@ -295,6 +295,21 @@ import type { GameGenerationPlan } from '../types/reference.js';
 import { migrateGamePlan } from '../utils/planValidator.js';
 import { TEMPLATE_REGISTRY } from '../templates/templateRegistry.js';
 
+/** Keep analysis provenance truthful across the plan-to-runtime boundary. */
+function mapPlanProvenance(provenance: GameDesignPlan['provenance']): SceneProvenanceSource {
+  switch (provenance) {
+    case 'gemini-vision':
+      return 'gemini-vision';
+    case 'huggingface-vision':
+      return 'huggingface-vision';
+    case 'mock-heuristic':
+    case 'development-mock':
+      return 'mock-fallback';
+    case 'manual-input':
+      return 'local-vector';
+  }
+}
+
 /**
  * Converts a validated 2D GameDesignPlan (or legacy GameGenerationPlan) into a PlayableGameScene.
  */
@@ -311,6 +326,14 @@ export function convertPlanToPlayableScene(
   const worldHeight = options.worldHeight ?? plan.world.height;
   const gravity = plan.world.gravity;
   const theme = plan.theme.name;
+  // Plans use their own world-space pixels. Scale all geometry when the runtime
+  // world is resized so entities keep their relative positions and proportions.
+  const scaleX = worldWidth / plan.world.width;
+  const scaleY = worldHeight / plan.world.height;
+  const sx = (value: number) => Math.round(value * scaleX);
+  const sy = (value: number) => Math.round(value * scaleY);
+  const sw = (value: number) => Math.max(1, Math.round(value * scaleX));
+  const sh = (value: number) => Math.max(1, Math.round(value * scaleY));
 
   // 1. Solid platforms from terrain.platforms + terrain.walls (non-doors)
   const nonDoorWalls = plan.terrain.walls.filter(
@@ -320,18 +343,18 @@ export function convertPlanToPlayableScene(
   const platforms: PlatformElement[] = [
     ...plan.terrain.platforms.map((p) => ({
       id: p.id,
-      x: Math.round(p.x),
-      y: Math.round(p.y),
-      width: Math.round(p.width),
-      height: Math.round(p.height),
+      x: sx(p.x),
+      y: sy(p.y),
+      width: sw(p.width),
+      height: sh(p.height),
       strokeColor: p.strokeColor,
     })),
     ...nonDoorWalls.map((w) => ({
       id: w.id,
-      x: Math.round(w.x),
-      y: Math.round(w.y),
-      width: Math.round(w.width),
-      height: Math.round(w.height),
+      x: sx(w.x),
+      y: sy(w.y),
+      width: sw(w.width),
+      height: sh(w.height),
       strokeColor: w.strokeColor || '#64748b',
     })),
   ];
@@ -339,19 +362,19 @@ export function convertPlanToPlayableScene(
   // 2. Hazards
   const hazards: HazardElement[] = plan.terrain.hazards.map((h) => ({
     id: h.id,
-    x: Math.round(h.x),
-    y: Math.round(h.y),
-    width: Math.round(h.width),
-    height: Math.round(h.height),
+    x: sx(h.x),
+    y: sy(h.y),
+    width: sw(h.width),
+    height: sh(h.height),
     hazardType: (h.hazardType === 'lava' ? 'lava' : 'spike') as 'spike' | 'lava',
   }));
 
   // 3. Collectibles
   const coins: CoinElement[] = plan.entities.collectibles.map((c) => ({
     id: c.id,
-    x: Math.round(c.x),
-    y: Math.round(c.y),
-    size: 24,
+    x: sx(c.x),
+    y: sy(c.y),
+    size: Math.max(8, Math.round(24 * Math.min(scaleX, scaleY))),
     value: c.value,
   }));
 
@@ -360,20 +383,20 @@ export function convertPlanToPlayableScene(
     .filter((inter) => inter.type === 'trampoline')
     .map((inter) => ({
       id: inter.id,
-      x: Math.round(inter.x),
-      y: Math.round(inter.y),
-      width: 48,
-      height: 18,
+      x: sx(inter.x),
+      y: sy(inter.y),
+      width: sw(48),
+      height: sh(18),
       bounceStrength: 650,
     }));
 
   // 5. Goal
   const goal: GoalElement = {
     id: plan.objectives.goal.id,
-    x: Math.round(plan.objectives.goal.x),
-    y: Math.round(plan.objectives.goal.y),
-    width: Math.round(plan.objectives.goal.width),
-    height: Math.round(plan.objectives.goal.height),
+    x: sx(plan.objectives.goal.x),
+    y: sy(plan.objectives.goal.y),
+    width: sw(plan.objectives.goal.width),
+    height: sh(plan.objectives.goal.height),
   };
 
   // 6. Enemies
@@ -382,10 +405,10 @@ export function convertPlanToPlayableScene(
       e.type === 'stationary' ? 'stationary' : 'patrol';
     return {
       id: e.id,
-      x: Math.round(e.x),
-      y: Math.round(e.y),
-      width: 32,
-      height: 32,
+      x: sx(e.x),
+      y: sy(e.y),
+      width: sw(32),
+      height: sh(32),
       type: enemyType,
       speed: e.speed ?? 100,
       patrolRange: e.patrolDistance || 120,
@@ -397,10 +420,10 @@ export function convertPlanToPlayableScene(
     .filter((inter) => inter.type === 'switch')
     .map((inter) => ({
       id: inter.id,
-      x: Math.round(inter.x),
-      y: Math.round(inter.y),
-      width: inter.width ?? 32,
-      height: inter.height ?? 16,
+      x: sx(inter.x),
+      y: sy(inter.y),
+      width: sw(inter.width ?? 32),
+      height: sh(inter.height ?? 16),
       targetId: inter.behavior?.targetDoorId ?? '',
       isActivated: false,
     }));
@@ -410,10 +433,10 @@ export function convertPlanToPlayableScene(
     .filter((w) => w.id.includes('door') || w.id.includes('barrier'))
     .map((w) => ({
       id: w.id,
-      x: Math.round(w.x),
-      y: Math.round(w.y),
-      width: Math.round(w.width),
-      height: Math.round(w.height),
+      x: sx(w.x),
+      y: sy(w.y),
+      width: sw(w.width),
+      height: sh(w.height),
       isOpen: false,
     }));
 
@@ -448,7 +471,7 @@ export function convertPlanToPlayableScene(
     schemaVersion: '1.0' as const,
     id: plan.id,
     name: plan.title,
-    source: (plan.provenance === 'gemini-vision' ? 'gemini-vision' : plan.provenance === 'huggingface-vision' ? 'huggingface-vision' : 'local-vector') as SceneProvenanceSource,
+    source: mapPlanProvenance(plan.provenance),
     templateId: plan.templateId,
     movementModel,
     levelName: plan.title || `${plan.category.toUpperCase()} — Generated Level`,
@@ -465,8 +488,8 @@ export function convertPlanToPlayableScene(
       backgroundColor: plan.theme.background,
     },
     player: {
-      spawnX: Math.round(plan.player.spawn.x),
-      spawnY: Math.round(plan.player.spawn.y),
+      spawnX: sx(plan.player.spawn.x),
+      spawnY: sy(plan.player.spawn.y),
       speed: plan.player.speed,
       jumpPower: plan.player.jumpPower,
       size: plan.player.size,
