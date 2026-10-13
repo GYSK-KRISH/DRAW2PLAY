@@ -28,3 +28,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local projects, uploads, generated worlds, and model caches
+storage-local/
+local-storage/
+model-cache/
+models-cache/
+generated-worlds/
+uploads-local/
+
+# Workspace/package build outputs
+.turbo/
+coverage/
