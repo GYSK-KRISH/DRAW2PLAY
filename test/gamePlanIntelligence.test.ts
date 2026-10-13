@@ -660,3 +660,62 @@ assert.ok(resDup.errors.some((e) => e.includes('Duplicate entity ID detected')),
 console.log('  ✓ Broken entity references and duplicate entity IDs caught and rejected');
 
 console.log('\n🎉 ALL 10 STAGE 2 GAME-PLAN INTELLIGENCE FIXTURES AND INTEGRATION TESTS PASSED!\n');
+
+
+// ===========================================================================
+// BASELINE REGRESSION: Plan-to-runtime scaling, enemy semantics, provenance
+// ===========================================================================
+console.log('\n▶ Baseline regression: resized plan conversion and provenance');
+
+const resizedRegressionPlan: GameDesignPlan = {
+  ...multilevelPlan,
+  provenance: 'mock-heuristic',
+  entities: {
+    ...multilevelPlan.entities,
+    enemies: [
+      {
+        id: 'enemy-jumper-regression',
+        name: 'Jumper Regression',
+        type: 'jumper',
+        x: 600,
+        y: 400,
+        patrolDistance: 120,
+        damage: 1,
+      },
+    ],
+  },
+};
+
+const resizedRegressionScene = convertPlanToPlayableScene(resizedRegressionPlan, {
+  worldWidth: 600,
+  worldHeight: 400,
+});
+
+const scaledPlatform = resizedRegressionScene.platforms.find((p) => p.id === 'plat-t2-left');
+assert.ok(scaledPlatform, 'Expected source platform to survive conversion');
+assert.deepStrictEqual(
+  [scaledPlatform.x, scaledPlatform.y, scaledPlatform.width, scaledPlatform.height],
+  [40, 295, 140, 10],
+  'Platform position and dimensions must scale with the target world'
+);
+assert.deepStrictEqual(
+  [resizedRegressionScene.player.spawnX, resizedRegressionScene.player.spawnY],
+  [40, 350],
+  'Player spawn must scale with the target world'
+);
+assert.deepStrictEqual(
+  [resizedRegressionScene.goal.x, resizedRegressionScene.goal.y, resizedRegressionScene.goal.width, resizedRegressionScene.goal.height],
+  [500, 100, 18, 24],
+  'Goal position and dimensions must scale with the target world'
+);
+assert.strictEqual(
+  resizedRegressionScene.source,
+  'mock-fallback',
+  'Keyword heuristic provenance must not be mislabeled as local-vector'
+);
+assert.strictEqual(
+  resizedRegressionScene.enemies[0]?.type,
+  'chaser',
+  'A jumper enemy must retain active behavior instead of silently becoming a patrol'
+);
+console.log('  ✓ World scaling, player spawn, goal dimensions, enemy behavior, and heuristic provenance preserved');
