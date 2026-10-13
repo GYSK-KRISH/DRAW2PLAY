@@ -15,6 +15,7 @@ import { PlayableGameSceneSchema } from '../types/scene.js';
 import {
   calculateStrokeBounds,
   calculateStrokeCentroid,
+  filterValidPoints,
 } from '../utils/geometryExtractor.js';
 
 export interface SceneConversionOptions {
@@ -66,8 +67,10 @@ export function convertSketchToPlayableScene(
 
   for (let sIdx = 0; sIdx < strokesByType.ground.length; sIdx++) {
     const stroke = strokesByType.ground[sIdx];
-    const pts = stroke.points;
-    if (!pts || pts.length === 0) continue;
+    // Imported or restored strokes can be malformed even though live pointer
+    // input is normalized. Filter invalid coordinates before creating physics bodies.
+    const pts = filterValidPoints(stroke.points || []);
+    if (pts.length === 0) continue;
 
     const thickness = Math.max(12, Math.min(32, stroke.width || 14));
 
