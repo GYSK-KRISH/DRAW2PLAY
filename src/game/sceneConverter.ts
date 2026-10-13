@@ -401,8 +401,10 @@ export function convertPlanToPlayableScene(
 
   // 6. Enemies
   const enemies: EnemyElement[] = (plan.entities.enemies || []).map((e) => {
+    // The runtime has no dedicated jumper behavior; preserve its active behavior
+    // as a chaser instead of silently turning it into a patrol.
     const enemyType: 'patrol' | 'chaser' | 'stationary' =
-      e.type === 'stationary' ? 'stationary' : 'patrol';
+      e.type === 'stationary' ? 'stationary' : e.type === 'jumper' ? 'chaser' : 'patrol';
     return {
       id: e.id,
       x: sx(e.x),
