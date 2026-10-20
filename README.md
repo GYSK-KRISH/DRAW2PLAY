@@ -1,4 +1,4 @@
-# 🍌 Draw2Play AI — Image-to-Playable Game Studio
+# Draw2Play AI — Image-to-Playable Game Studio
 
 > **Transform Hand-Drawn Sketches, Screenshots & Concept Art into Instant Playable 2D Phaser Games.**  
 > Built for the **Banana Hacks 2026** Hackathon | **Theme:** Image AI (October 9–12, 2026)
